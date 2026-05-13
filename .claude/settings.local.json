@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make test *)",
+      "PowerShell(head *)",
+      "Bash(gcc --version)",
+      "Bash(make clean *)",
+      "Bash(tee test_output.log)",
+      "PowerShell(wsl make --version)",
+      "PowerShell(wsl -e bash -c \"cd /mnt/c/Users/vande/Desktop/loxc && make clean && make test 2>&1\")",
+      "PowerShell(tail *)",
+      "PowerShell(wsl -e bash -c \"cd /mnt/c/Users/vande/Desktop/loxc && make tools/loxc_train 2>&1\")",
+      "PowerShell(wsl -e bash -c \"cd /mnt/c/Users/vande/Desktop/loxc && wsl -e bash -c 'echo \\\\\"Hello world, this is a test file for training.\\\\\" > /tmp/test_input.txt && ./tools/loxc_train --input /tmp/test_input.txt --output /tmp/test_output --module-name test --module-id 10'\")",
+      "Bash(echo \"Hello world, this is a test file for training.\")",
+      "Bash(/mnt/c/Users/vande/Desktop/loxc/tools/loxc_train --input /tmp/test_input.txt --output /tmp/test_output --module-name test --module-id 10)",
+      "Bash(./tools/loxc_train --input /tmp/test_input.txt --output /tmp/test_output --module-name test --module-id 10)",
+      "PowerShell(wsl -e bash -c \"cd /mnt/c/Users/vande/Desktop/loxc && make clean && make tools/loxc_train 2>&1 && echo 'Test input:' && echo 'Hello world, this is a test file for training.' > /tmp/test_input.txt && cat /tmp/test_input.txt && echo '' && echo 'Running loxc_train:' && ./tools/loxc_train --input /tmp/test_input.txt --output /tmp/test_output --module-name test --module-id 10\")",
+      "PowerShell(wsl -e bash -c \"cd /c/Users/vande/Desktop/loxc && ./tools/loxc_train --input trainings/english.txt --output /tmp/test_output --module-name english --module-id 10 2>&1\")",
+      "Bash(./tools/loxc_train *)",
+      "PowerShell(wsl -e bash -c \"cd /c/Users/vande/Desktop/loxc && make clean tools/loxc_train 2>&1 | tail -5 && ./tools/loxc_train --input trainings/english.txt --output /tmp/test_output --module-name english --module-id 10 2>&1\")",
+      "Bash(wsl make *)",
+      "Bash(wsl ./tools/loxc_train --input trainings/english.txt --output /tmp/test_output --module-name english --module-id 10)",
+      "Bash(wsl bash *)",
+      "Bash(make)",
+      "PowerShell(gcc *)",
+      "Bash(clang --version)",
+      "Bash(mkdir -p modules)",
+      "Bash(clang -std=c99 -Wall -Wextra -O2 -Iinclude -c src/loxc_base.c -o src/loxc_base.o)",
+      "Bash(clang -std=c99 -Wall -Wextra -O2 -Iinclude -c src/loxc_plain.c -o src/loxc_plain.o)",
+      "Bash(clang -std=c99 -Wall -Wextra -O2 -Iinclude -c src/loxc_matrix.c -o src/loxc_matrix.o)",
+      "Bash(clang -std=c99 -Wall -Wextra -O2 -Iinclude -c src/loxc_dict.c -o src/loxc_dict.o)",
+      "Bash(clang-cl /Iinclude /Fmtools/loxc_train.map /Fetools/loxc_train.exe tools/loxc_train.c libloxc.a)"
+    ]
+  }
+}

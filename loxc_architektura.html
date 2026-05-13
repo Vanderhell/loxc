@@ -1,0 +1,1691 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>loxc – Architektúra kompresného formátu</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@400;500;600;700;800&display=swap');
+
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface-2: #1a1a26;
+    --border: rgba(120,100,255,0.15);
+    --accent: #7B6FFF;
+    --accent-2: #FF6B6B;
+    --accent-3: #6BFFB8;
+    --text: #e8e6ff;
+    --text-2: #9890cc;
+    --text-3: #5a5480;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.7;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Background grid */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: 
+      linear-gradient(rgba(123,111,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(123,111,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 4rem 2rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Header */
+  .hero {
+    margin-bottom: 5rem;
+    position: relative;
+  }
+
+  .hero-tag {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 3px;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .hero-tag::before {
+    content: '';
+    width: 24px;
+    height: 1px;
+    background: var(--accent);
+  }
+
+  h1 {
+    font-size: clamp(3rem, 8vw, 6rem);
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -2px;
+    background: linear-gradient(135deg, #fff 0%, var(--accent) 50%, var(--accent-3) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 1.5rem;
+  }
+
+  .hero-sub {
+    font-size: 16px;
+    color: var(--text-2);
+    max-width: 500px;
+    font-weight: 400;
+  }
+
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 1.5rem;
+    padding: 6px 14px;
+    background: rgba(107,255,184,0.08);
+    border: 1px solid rgba(107,255,184,0.2);
+    border-radius: 100px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent-3);
+  }
+
+  /* Sections */
+  .section {
+    margin-bottom: 4rem;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 1.5rem;
+  }
+
+  .section-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  h2 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+
+  h3 {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-2);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 1rem;
+  }
+
+  /* Cards */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .card-accent {
+    border-left: 3px solid var(--accent);
+  }
+
+  .card-green {
+    border-left: 3px solid var(--accent-3);
+  }
+
+  .card-red {
+    border-left: 3px solid var(--accent-2);
+  }
+
+  /* Code blocks */
+  pre {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.8;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    overflow-x: auto;
+    margin: 1rem 0;
+    color: #c8c4ff;
+  }
+
+  .hl-accent { color: var(--accent); }
+  .hl-green { color: var(--accent-3); }
+  .hl-red { color: var(--accent-2); }
+  .hl-dim { color: var(--text-3); }
+  .hl-white { color: #fff; }
+
+  /* Grid layouts */
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+  }
+
+  .grid-3 {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+  }
+
+  @media (max-width: 600px) {
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  }
+
+  /* Stat boxes */
+  .stat {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    text-align: center;
+  }
+
+  .stat-val {
+    font-family: var(--mono);
+    font-size: 28px;
+    font-weight: 600;
+    color: var(--accent);
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  .stat-label {
+    font-size: 12px;
+    color: var(--text-2);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  /* Pipeline */
+  .pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .pipe-step {
+    display: flex;
+    align-items: stretch;
+    gap: 0;
+  }
+
+  .pipe-left {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 40px;
+    flex-shrink: 0;
+  }
+
+  .pipe-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg);
+    flex-shrink: 0;
+    margin-top: 18px;
+  }
+
+  .pipe-line {
+    width: 2px;
+    flex: 1;
+    background: var(--border);
+    margin: 0 auto;
+  }
+
+  .pipe-content {
+    flex: 1;
+    padding: 12px 0 24px 16px;
+  }
+
+  .pipe-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+
+  .pipe-desc {
+    font-size: 13px;
+    color: var(--text-2);
+    font-family: var(--mono);
+  }
+
+  /* Matrix viz */
+  .matrix-container {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    margin: 1rem 0;
+  }
+
+  .matrix {
+    display: inline-flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .matrix-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text-3);
+    margin-bottom: 4px;
+    text-align: center;
+  }
+
+  .matrix-row {
+    display: flex;
+    gap: 2px;
+  }
+
+  .matrix-cell {
+    width: 28px;
+    height: 28px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text-3);
+    transition: all 0.2s;
+    cursor: default;
+  }
+
+  .matrix-cell:hover {
+    background: rgba(123,111,255,0.2);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .matrix-cell.active {
+    background: rgba(123,111,255,0.3);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  .matrix-arrow {
+    font-size: 20px;
+    color: var(--text-3);
+    display: flex;
+    align-items: center;
+    padding-top: 30px;
+  }
+
+  /* Table */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    font-family: var(--mono);
+  }
+
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-3);
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid rgba(120,100,255,0.07);
+    color: var(--text-2);
+  }
+
+  td:first-child { color: var(--text); }
+
+  tr:hover td { background: rgba(123,111,255,0.04); }
+
+  /* Formula */
+  .formula {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--accent-3);
+    text-align: center;
+    margin: 1rem 0;
+  }
+
+  /* Tags */
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 10px;
+    border-radius: 100px;
+    font-family: var(--mono);
+    font-size: 11px;
+    margin: 2px;
+  }
+
+  .tag-purple { background: rgba(123,111,255,0.15); color: var(--accent); border: 1px solid rgba(123,111,255,0.3); }
+  .tag-green  { background: rgba(107,255,184,0.1);  color: var(--accent-3); border: 1px solid rgba(107,255,184,0.25); }
+  .tag-red    { background: rgba(255,107,107,0.1);  color: var(--accent-2); border: 1px solid rgba(255,107,107,0.25); }
+
+  /* Divider */
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+    margin: 3rem 0;
+  }
+
+  /* Footer */
+  .footer {
+    margin-top: 5rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: gap;
+    gap: 1rem;
+  }
+
+  .footer-left {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-3);
+  }
+
+  .footer-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent-3);
+  }
+
+  .dot-pulse {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-3);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  p { color: var(--text-2); font-size: 15px; margin-bottom: 0.75rem; }
+
+  .highlight { color: var(--accent); font-weight: 600; }
+  .highlight-green { color: var(--accent-3); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <!-- HERO -->
+  <div class="hero">
+    <div class="hero-tag">Technická dokumentácia · v0.1-draft</div>
+    <h1>loxc</h1>
+    <p class="hero-sub">Hierarchický vektorový kompresný formát s dynamickými filtračnými maticami natrénovanými per-doménu.</p>
+    <div class="hero-badge">⚡ Návrh architektúry · Experimentálna fáza</div>
+  </div>
+
+  <!-- 1. CORE IDEA -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">01</span>
+      <h2>Základná myšlienka</h2>
+    </div>
+
+    <p>Namiesto klasického Huffmanovho stromu (pointer chasing) používa loxc <span class="highlight">hierarchiu vnorených filtračných matíc</span> rôznych geometrií. Navigácia je čisté indexovanie – žiadne skoky po pamäti, len <code>matrix[x][y][z]</code>.</p>
+
+    <div class="grid-3" style="margin-top: 1.5rem;">
+      <div class="stat">
+        <span class="stat-val">O(1)</span>
+        <span class="stat-label">dekódovanie / znak</span>
+      </div>
+      <div class="stat">
+        <span class="stat-val">~1-4ns</span>
+        <span class="stat-label">L1 cache hit</span>
+      </div>
+      <div class="stat">
+        <span class="stat-val">0B</span>
+        <span class="stat-label">overhead tabuľky</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 2. FORMAT -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">02</span>
+      <h2>Formát súboru</h2>
+    </div>
+
+    <pre><span class="hl-dim">┌──────────────┬────────┬────────┬────────┬─────────────────┬──────────────┐</span>
+<span class="hl-dim">│</span> <span class="hl-accent">MAGIC  4B</span>    <span class="hl-dim">│</span> <span class="hl-green">VER 1B</span> <span class="hl-dim">│</span> <span class="hl-green">MOD 1B</span> <span class="hl-dim">│</span> <span class="hl-green">LEN 2B</span> <span class="hl-dim">│</span> <span class="hl-red">LOCAL_DICT</span>      <span class="hl-dim">│</span> <span class="hl-white">DÁTA</span>          <span class="hl-dim">│</span>
+<span class="hl-dim">└──────────────┴────────┴────────┴────────┴─────────────────┴──────────────┘</span>
+  <span class="hl-dim">↑                                          ↑                 ↑</span>
+  <span class="hl-accent">identifikuje modul                         zakódovaný        bitový stream</span>
+  <span class="hl-accent">+ jeho matice v knižnici                   vektormi          vektorov</span></pre>
+
+    <div class="grid-2">
+      <div class="card card-accent">
+        <h3>MAGIC</h3>
+        <p style="font-size: 13px;">Identifikuje modul a jeho natrénované matice. Tabuľka sa <strong>nikdy neposiela</strong> – je zabudovaná v knižnici. Magic je kľúč.</p>
+        <pre style="margin-top: 0.75rem; font-size: 12px;"><span class="hl-accent">0xLXC1</span>  →  anglický text
+<span class="hl-accent">0xLXC2</span>  →  zdrojový kód
+<span class="hl-accent">0xLXC3</span>  →  slovenčina
+<span class="hl-accent">0xLXC4</span>  →  JSON / XML
+<span class="hl-accent">0xLXCN</span>  →  vlastný modul</pre>
+      </div>
+      <div class="card card-red">
+        <h3>LOCAL_DICT</h3>
+        <p style="font-size: 13px;">Opakujúce sa slová špecifické pre daný dokument. Zakódované <strong>vektormi toho istého modulu</strong>. Ide v hlavičke.</p>
+        <div class="formula" style="font-size: 12px; text-align: left; margin-top: 0.75rem;">
+ZISK = (N × bits_slova)<br>
+     - (N × bits_ref + bits_v_dict)<br>
+<br>
+<span class="hl-dim">ak ZISK > 0 → do dict</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 3. MATRICES -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">03</span>
+      <h2>Filtračné matice</h2>
+    </div>
+
+    <p>Jadro systému. Každý znak sa zakóduje ako <span class="highlight">vektor súradníc</span> cez hierarchiu vnorených matíc. Každá bunka matice obsahuje ďalšiu maticu – rôznej veľkosti a dimenzie.</p>
+
+    <div class="matrix-container" style="justify-content: center; margin: 2rem 0;">
+      <!-- Matrix 1: 8x8 -->
+      <div>
+        <div class="matrix-label">Matica 1 (8×8) · 6 bitov</div>
+        <div class="matrix">
+          <div class="matrix-row">
+            <div class="matrix-cell active">000</div>
+            <div class="matrix-cell">001</div>
+            <div class="matrix-cell">010</div>
+            <div class="matrix-cell">011</div>
+            <div class="matrix-cell">100</div>
+            <div class="matrix-cell">101</div>
+            <div class="matrix-cell">110</div>
+            <div class="matrix-cell">111</div>
+          </div>
+          <div class="matrix-row">
+            <div class="matrix-cell active">000</div>
+            <div class="matrix-cell">001</div>
+            <div class="matrix-cell">010</div>
+            <div class="matrix-cell">011</div>
+            <div class="matrix-cell">100</div>
+            <div class="matrix-cell">101</div>
+            <div class="matrix-cell">110</div>
+            <div class="matrix-cell">111</div>
+          </div>
+          <div class="matrix-row">
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+          </div>
+        </div>
+        <div style="font-family: var(--mono); font-size: 10px; color: var(--accent); text-align: center; margin-top: 6px;">vstup: 101/100</div>
+      </div>
+
+      <div class="matrix-arrow">→</div>
+
+      <!-- Matrix 2: 8x8 -->
+      <div>
+        <div class="matrix-label">Matica 2 (8×8) · 6 bitov</div>
+        <div class="matrix">
+          <div class="matrix-row">
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell active">001</div>
+            <div class="matrix-cell">010</div>
+            <div class="matrix-cell">011</div>
+            <div class="matrix-cell">100</div>
+            <div class="matrix-cell">101</div>
+            <div class="matrix-cell">110</div>
+            <div class="matrix-cell">111</div>
+          </div>
+          <div class="matrix-row">
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+          </div>
+          <div class="matrix-row">
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+          </div>
+        </div>
+        <div style="font-family: var(--mono); font-size: 10px; color: var(--accent); text-align: center; margin-top: 6px;">vstup: 111/001</div>
+      </div>
+
+      <div class="matrix-arrow">→</div>
+
+      <!-- Matrix 3: 8x8 -->
+      <div>
+        <div class="matrix-label">Matica 3 (8×8) · 6 bitov</div>
+        <div class="matrix">
+          <div class="matrix-row">
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell active">110</div>
+            <div class="matrix-cell">·</div>
+          </div>
+          <div class="matrix-row">
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell active">001</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+          </div>
+          <div class="matrix-row">
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+            <div class="matrix-cell">·</div>
+          </div>
+        </div>
+        <div style="font-family: var(--mono); font-size: 10px; color: var(--accent); text-align: center; margin-top: 6px;">vstup: 001/110 → <span class="hl-green">'e'</span></div>
+      </div>
+    </div>
+
+    <pre><span class="hl-dim">Celková cesta:  101/100 → 111/001 → 001/110</span>
+<span class="hl-dim">Bitov celkom:   6 + 6 + 6 = </span><span class="hl-white">18 bitov</span>
+<span class="hl-dim">Kombinácií:     64 × 64 × 64 = </span><span class="hl-accent">262 144</span> <span class="hl-dim">(pokryje celý Unicode)</span></pre>
+
+    <div class="card" style="margin-top: 1.5rem;">
+      <h3>Rôzne veľkosti matíc</h3>
+      <p style="font-size: 13px;">Tréning rozhodne o geometrii každej vetvy. Matice musia byť mocniny 2 pre 100% využitie bitov:</p>
+      <table style="margin-top: 1rem;">
+        <thead>
+          <tr>
+            <th>Kategória</th>
+            <th>Geometria</th>
+            <th>Bitov/znak</th>
+            <th>Kombinácií</th>
+            <th>Využitie</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>číslice</td><td>1D × 16</td><td>4 bity</td><td>16</td><td class="hl-green">100%</td></tr>
+          <tr><td>malé písmená</td><td>2D 4×8</td><td>5 bitov</td><td>32</td><td class="hl-green">100%</td></tr>
+          <tr><td>veľké písmená</td><td>2D 4×8</td><td>5 bitov</td><td>32</td><td class="hl-green">100%</td></tr>
+          <tr><td>bigramy (top 64)</td><td>2D 8×8</td><td>6 bitov</td><td>64</td><td class="hl-green">100%</td></tr>
+          <tr><td>špeciálne znaky</td><td>3D 4×4×4</td><td>6 bitov (3 úrovne)</td><td>64</td><td class="hl-green">100%</td></tr>
+          <tr><td>Unicode escape</td><td>3D 8×8×8</td><td>9 bitov (3 úrovne)</td><td>512</td><td class="hl-green">100%</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 4. ENCODING -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">04</span>
+      <h2>Kódovanie – variabilné vektory</h2>
+    </div>
+
+    <p>Výsledný súbor je <span class="highlight">bitový stream variabilných vektorov</span>. Časté znaky = krátky vektor = málo bitov. Zriedkavé = hlbšia hierarchia = viac bitov.</p>
+
+    <pre><span class="hl-dim">Vstup:  "the quick"</span>
+
+<span class="hl-green">t</span>  →  úroveň 1  →  <span class="hl-accent">010/011</span>         <span class="hl-dim">(6 bitov)</span>
+<span class="hl-green">h</span>  →  úroveň 1  →  <span class="hl-accent">010/100</span>         <span class="hl-dim">(6 bitov)</span>
+<span class="hl-green">th</span> →  bigram    →  <span class="hl-accent">001</span>             <span class="hl-dim">(3 bity – kratší!)</span>
+<span class="hl-green">e</span>  →  úroveň 1  →  <span class="hl-accent">000/001</span>         <span class="hl-dim">(6 bitov)</span>
+<span class="hl-green"> </span>  →  úroveň 1  →  <span class="hl-accent">00</span>              <span class="hl-dim">(2 bity – najčastejší!)</span>
+<span class="hl-green">ž</span>  →  úroveň 2  →  <span class="hl-accent">110/010</span>/<span class="hl-accent">011/001</span> <span class="hl-dim">(12 bitov – zriedkavý)</span></pre>
+
+    <div class="formula">
+      SKORE = frekvencia / (hĺbka ^ penalizácia)
+    </div>
+    <p style="font-size: 13px; text-align: center; margin-top: -0.5rem;">Trénovací parameter <code>penalizácia</code> ovplyvňuje hĺbku stromu matíc – a teda veľkosť v cache.</p>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 5. TRAINING -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">05</span>
+      <h2>Trénovací pipeline</h2>
+    </div>
+
+    <div class="pipeline">
+      <div class="pipe-step">
+        <div class="pipe-left"><div class="pipe-dot"></div><div class="pipe-line"></div></div>
+        <div class="pipe-content">
+          <div class="pipe-title">Čisté vzorky</div>
+          <div class="pipe-desc">bez komentárov, dead code, šumu, duplikátov</div>
+        </div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-left"><div class="pipe-dot"></div><div class="pipe-line"></div></div>
+        <div class="pipe-content">
+          <div class="pipe-title">Frekvenčná analýza</div>
+          <div class="pipe-desc">znaky, bigramy, trigramy → distribúcia</div>
+        </div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-left"><div class="pipe-dot"></div><div class="pipe-line"></div></div>
+        <div class="pipe-content">
+          <div class="pipe-title">Zoskupenie do kategórií</div>
+          <div class="pipe-desc">malé/veľké písmená, číslice, symboly, bigramy...</div>
+        </div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-left"><div class="pipe-dot"></div><div class="pipe-line"></div></div>
+        <div class="pipe-content">
+          <div class="pipe-title">Optimalizácia geometrie matíc</div>
+          <div class="pipe-desc">hľadá optimálny tvar (2D/3D, mocniny 2) pre každú skupinu</div>
+        </div>
+      </div>
+      <div class="pipe-step">
+        <div class="pipe-left"><div class="pipe-dot" style="background: var(--accent-3);"></div></div>
+        <div class="pipe-content">
+          <div class="pipe-title" style="color: var(--accent-3);">Výstup → .h súbor</div>
+          <div class="pipe-desc">statické C polia, vbudované do modulu, nikdy sa neposielajú</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 6. LIBRARY -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">06</span>
+      <h2>Knižnica – C99 modulárna</h2>
+    </div>
+
+    <pre><span class="hl-dim">// Programátor includuje len čo potrebuje</span>
+#include <span class="hl-accent">"loxc_base.h"</span>        <span class="hl-dim">// jadro, vždy povinné</span>
+#include <span class="hl-green">"rng_table_en.h"</span>    <span class="hl-dim">// anglický text   → magic 0xLXC1</span>
+#include <span class="hl-green">"rng_table_code.h"</span>  <span class="hl-dim">// zdrojový kód    → magic 0xLXC2</span>
+#include <span class="hl-green">"rng_table_sk.h"</span>    <span class="hl-dim">// slovenčina      → magic 0xLXC3</span>
+#include <span class="hl-green">"rng_table_json.h"</span>  <span class="hl-dim">// JSON / XML      → magic 0xLXC4</span>
+
+<span class="hl-dim">// API</span>
+<span class="hl-accent">rng_encode</span>(input, LOXC_PLAIN, output, &len);
+<span class="hl-accent">rng_decode</span>(input, len, output);
+<span class="hl-accent">loxc_train</span>(samples, n, .penalizacia = 1.5);</pre>
+
+    <div class="card card-green" style="margin-top: 1rem;">
+      <h3>Distribúcia modelov</h3>
+      <p style="font-size: 13px;">Natrénovaný model = sada matíc. Ktokoľvek s rovnakým modelom vie kódovať aj dekódovať. Modely sa distribuujú ako malé <code>.h</code> súbory. Komunita môže tvoriť vlastné modely pre špecifické domény (medicína, právo, finančné dáta...).</p>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 7. FAZA 2 -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">07</span>
+      <h2>Fáza 2 – Tokenizácia (neskôr)</h2>
+    </div>
+
+    <p>Voliteľný modul pred hlavným kódovaním. Skráti dlhé tokeny na krátke aliasy:</p>
+
+    <pre><span class="hl-red">function</span>  →  <span class="hl-green">f</span>
+<span class="hl-red">return</span>    →  <span class="hl-green">r</span>
+<span class="hl-red">var input</span> →  <span class="hl-green">v i</span>
+
+<span class="hl-dim">Tabuľka aliasov ide spolu s dátami (zakódovaná vektormi).</span></pre>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 8. COMPARISON -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">08</span>
+      <h2>Čo je originálne</h2>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Existujúce riešenia</th>
+          <th>loxc</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Huffman strom – pointer chasing</td>
+          <td><span class="tag tag-green">Filtračné matice – priame indexovanie</span></td>
+        </tr>
+        <tr>
+          <td>Fixná štruktúra stromu</td>
+          <td><span class="tag tag-green">Variabilná geometria určená tréningom</span></td>
+        </tr>
+        <tr>
+          <td>Tabuľka sa posiela s dátami</td>
+          <td><span class="tag tag-green">Tabuľka v knižnici, magic ju identifikuje</span></td>
+        </tr>
+        <tr>
+          <td>LZ77 sliding window za behu</td>
+          <td><span class="tag tag-green">LOCAL_DICT predspracovaný, len vector lookup</span></td>
+        </tr>
+        <tr>
+          <td>Jeden univerzálny slovník</td>
+          <td><span class="tag tag-green">Per-doména + per-dokument LOCAL_DICT</span></td>
+        </tr>
+        <tr>
+          <td>Fixné dimenzie</td>
+          <td><span class="tag tag-green">2D aj 3D matice, rôzne veľkosti per vetva</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 9. PERFORMANCE -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">09</span>
+      <h2>Očakávaný výkon</h2>
+    </div>
+
+    <div class="grid-2">
+      <div class="card card-accent">
+        <h3>Dekódovanie</h3>
+        <pre style="font-size: 12px;"><span class="hl-green">L1 cache hit:  ~1-4 ns / znak</span>
+L2 cache hit:  ~5-12 ns / znak
+L3 cache:      ~20-40 ns / znak
+
+<span class="hl-dim">Kľúč: matice musia sediť do L1</span>
+<span class="hl-dim">Penalizácia hĺbky to garantuje</span></pre>
+      </div>
+      <div class="card card-accent">
+        <h3>Zložitosť</h3>
+        <pre style="font-size: 12px;">Kódovanie:    <span class="hl-green">O(n)</span>
+Dekódovanie:  <span class="hl-green">O(n)</span>
+Znak lookup:  <span class="hl-green">O(1)</span>
+LOCAL_DICT:   <span class="hl-green">O(n)</span>  <span class="hl-dim">(hash table)</span>
+Tréning:      <span class="hl-green">O(n)</span>  <span class="hl-dim">(raz, offline)</span></pre>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 1rem; background: rgba(107,255,184,0.05); border-color: rgba(107,255,184,0.2);">
+      <p style="font-size: 14px; color: var(--accent-3); margin: 0;">⚡ Pre krátke stringy (pod 200 znakov) kde zstd trpí na overhead hlavičky môže loxc výrazne vyhrať – tabuľka je v knižnici, žiadny bootstrap čas.</p>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 10. N-GRAMY -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">10</span>
+      <h2>N-gramy – analyzátor rozhodne</h2>
+    </div>
+
+    <p>Okrem bigramov podporuje loxc trigramy, tetragramy a viac. <span class="highlight">Analyzátor a generátor rozhodnú sami</span> čo sa oplatí – ty nič nenastavuješ manuálne.</p>
+
+    <pre><span class="hl-dim">Analyzátor vyskúša všetky n-gramy až po max_n:</span>
+
+<span class="hl-green">"th"</span>    bigram    frekvencia 3.2%  ZISK +8 bit/výskyt   <span class="hl-accent">✓ do tabuľky</span>
+<span class="hl-green">"the"</span>   trigram   frekvencia 2.1%  ZISK +12 bit/výskyt  <span class="hl-accent">✓ do tabuľky</span>
+<span class="hl-green">"the "</span>  tetragram frekvencia 1.8%  ZISK +14 bit/výskyt  <span class="hl-accent">✓ do tabuľky</span>
+<span class="hl-green">"tion"</span>  tetragram frekvencia 1.4%  ZISK +11 bit/výskyt  <span class="hl-accent">✓ do tabuľky</span>
+<span class="hl-green">"ation"</span> pentagram frekvencia 0.9%  ZISK +6 bit/výskyt   <span class="hl-accent">✓ do tabuľky</span>
+<span class="hl-red">"xyz"</span>   trigram   frekvencia 0.01% ZISK -2 bit/výskyt   <span class="hl-dim">✗ zahodiť</span></pre>
+
+    <div class="card" style="margin-top: 1rem;">
+      <h3>Hranica: tabuľka vs LOCAL_DICT</h3>
+      <table>
+        <thead>
+          <tr><th>Typ</th><th>Kde</th><th>Prečo</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Krátke n-gramy (2–6 znakov)</td>
+            <td><span class="tag tag-purple">tabuľka v knižnici</span></td>
+            <td>globálne časté, natrénované raz</td>
+          </tr>
+          <tr>
+            <td>Dlhé opakujúce sa slová (7+ znakov)</td>
+            <td><span class="tag tag-red">LOCAL_DICT v hlavičke</span></td>
+            <td>lokálne časté, špecifické pre dokument</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre style="margin-top: 1rem;"><span class="hl-dim">// Tréning s parametrami</span>
+loxc_train(samples, n,
+    .max_ngram   = 6,      <span class="hl-dim">// skúsi až 6-znakové sekvencie</span>
+    .penalizacia = 1.5     <span class="hl-dim">// penalizácia hĺbky matíc</span>
+);</pre>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 11. MODULY -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">11</span>
+      <h2>Predpripravené moduly – stavebné kamene</h2>
+    </div>
+
+    <p>loxc nerozlišuje jazyky – rozlišuje <span class="highlight">vlastnosti textu</span>. Skladáš len čo tvoje dáta skutočne obsahujú. Každý modul je samostatná kompilačná jednotka – linker vyhodí čo neincluduješ.</p>
+
+    <pre><span class="hl-dim">// ── Základné kamene ──────────────────────────────────────</span>
+#include <span class="hl-accent">"loxc_base.h"</span>         <span class="hl-dim">// jadro – vždy povinné</span>
+
+<span class="hl-dim">// Znaky</span>
+#include <span class="hl-green">"loxc_lower.h"</span>        <span class="hl-dim">// malé písmená bez diakritiky   a–z</span>
+#include <span class="hl-green">"loxc_upper.h"</span>        <span class="hl-dim">// veľké písmená bez diakritiky  A–Z</span>
+#include <span class="hl-green">"loxc_lower_dia.h"</span>    <span class="hl-dim">// malé písmená s diakritikou    á é í...</span>
+#include <span class="hl-green">"loxc_upper_dia.h"</span>    <span class="hl-dim">// veľké písmená s diakritikou   Á É Í...</span>
+#include <span class="hl-green">"loxc_digits.h"</span>       <span class="hl-dim">// číslice                       0–9</span>
+#include <span class="hl-green">"loxc_punct.h"</span>        <span class="hl-dim">// základná interpunkcia         .,!?;:'"-</span>
+#include <span class="hl-green">"loxc_symbols.h"</span>      <span class="hl-dim">// programátorské symboly        @#$%^&amp;*()[]{}\/</span>
+#include <span class="hl-green">"loxc_whitespace.h"</span>   <span class="hl-dim">// medzera, tab, newline, CR</span>
+
+<span class="hl-dim">// N-gramy (natrénované vzory)</span>
+#include <span class="hl-green">"loxc_ngram_plain.h"</span>  <span class="hl-dim">// časté sekvencie bez diakritiky (the, in, er...)</span>
+#include <span class="hl-green">"loxc_ngram_dia.h"</span>    <span class="hl-dim">// časté sekvencie s diakritikou  (ou, an, ie...)</span>
+#include <span class="hl-green">"loxc_ngram_code.h"</span>   <span class="hl-dim">// časté sekvencie v kóde        (if, == , ->...)</span>
+#include <span class="hl-green">"loxc_ngram_data.h"</span>   <span class="hl-dim">// časté sekvencie v dátach      ({", ": , true...)</span>
+
+<span class="hl-dim">// ── Hotové kompozície ────────────────────────────────────</span>
+#include <span class="hl-accent">"loxc_plain.h"</span>        <span class="hl-dim">// lower+upper+digits+punct+ngram_plain</span>
+#include <span class="hl-accent">"loxc_plain_dia.h"</span>    <span class="hl-dim">// + lower_dia+upper_dia+ngram_dia</span>
+#include <span class="hl-accent">"loxc_code.h"</span>         <span class="hl-dim">// lower+upper+digits+symbols+ngram_code</span>
+#include <span class="hl-accent">"loxc_data.h"</span>         <span class="hl-dim">// lower+digits+punct+symbols+ngram_data</span>
+
+<span class="hl-dim">// ── Vlastný modul (ty / komunita) ────────────────────────</span>
+#include <span class="hl-red">"loxc_mymodule.h"</span>     <span class="hl-dim">// natrénovaný na tvojich dátach</span></pre>
+
+    <div class="grid-2" style="margin-top:1rem;">
+      <div class="card card-green">
+        <h3>Bez diakritiky vs s diakritikou</h3>
+        <p style="font-size:13px;">Angličtina, kód, JSON, CSV – nikdy nepotrebujú diakritiku. Prečo za ňu platiť miestom v matici? <code>rng_plain.h</code> ju neobsahuje. <code>rng_plain_dia.h</code> ju pridá len ak skutočne treba.</p>
+      </div>
+      <div class="card card-green">
+        <h3>Univerzálnosť cez kompozíciu</h3>
+        <p style="font-size:13px;">Namiesto "EN modul" alebo "SK modul" skladáš vlastnosti. Text v slovenčine = <code>plain + dia</code>. Text v kóde = <code>code</code>. Mix = oba. Jazyk nie je parameter – je to dôsledok výberu modulov.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 11b. USE CASES -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">11b</span>
+      <h2>Príklady nasadenia</h2>
+    </div>
+
+    <p>Ako loxc navrhnúť pre konkrétne reálne scenáre.</p>
+
+    <!-- IOT MQTT -->
+    <div style="margin-top:1.5rem;">
+      <div class="section-header" style="margin-bottom:1rem;">
+        <span class="tag tag-purple">IoT · MQTT</span>
+        <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:16px;color:var(--text);">Senzorové správy na obmedzenom zariadení</h3>
+      </div>
+      <p style="font-size:13px;color:var(--text-2);">MQTT správy z IoT senzorov majú fixnú štruktúru – topic, payload s číslami a kľúčmi. Opakujú sa tisíckrát denne. Ideálny kandidát pre loxc s vlastným natrénovaným modulom.</p>
+      <div class="grid-2" style="margin-top:1rem;">
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-3);margin-bottom:6px;">Typická MQTT správa (opakuje sa)</div>
+          <pre style="font-size:12px;">topic: sensors/room1/temp
+{
+  "device": "TH-204",
+  "temp": 21.4,
+  "humidity": 58,
+  "ts": 1746878400
+}</pre>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--accent-3);margin-bottom:6px;">Navrhované riešenie</div>
+          <pre style="font-size:12px;"><span class="hl-dim">// 1. Natrénuj modul na vzorkách</span>
+loxc_train(mqtt_samples, n,
+  .max_ngram = 4);
+<span class="hl-dim">// → loxc_mqtt.h  (pár KB v ROM)</span>
+
+<span class="hl-dim">// 2. Na zariadení len decode</span>
+#include "loxc_base.h"
+#include "loxc_digits.h"
+#include "loxc_ngram_data.h"
+
+<span class="hl-dim">// 3. "device","temp","humidity"</span>
+<span class="hl-dim">//    → LOCAL_DICT → 1B referencie</span>
+<span class="hl-green">// Úspora: ~60-70% · RAM: &lt;4KB</span></pre>
+        </div>
+      </div>
+      <div class="card card-green" style="margin-top:0.75rem;">
+        <p style="font-size:13px;margin:0;">IoT zariadenie obsahuje len <code>rng_base</code> + <code>rng_digits</code> + natrénovaný modul. Žiadna generická knižnica, žiadny bloat. Dekóder zaberie &lt;4KB ROM – funguje aj na ATmega328.</p>
+      </div>
+    </div>
+
+    <!-- REST API -->
+    <div style="margin-top:2.5rem;">
+      <div class="section-header" style="margin-bottom:1rem;">
+        <span class="tag tag-purple">Backend · REST API</span>
+        <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:16px;color:var(--text);">Kompresia JSON odpovedí bez overhead</h3>
+      </div>
+      <p style="font-size:13px;color:var(--text-2);">REST API vracia podobne štruktúrované JSON odpovede. gzip/brotli majú overhead pre krátke payloady. loxc s natrénovaným modulom na tvojom API schéme ich porazí.</p>
+      <div class="grid-2" style="margin-top:1rem;">
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-3);margin-bottom:6px;">Situácia</div>
+          <pre style="font-size:12px;"><span class="hl-dim">// Každý endpoint vracia</span>
+<span class="hl-dim">// podobnú štruktúru</span>
+
+GET /users      → user objekt
+GET /products   → product objekt
+GET /orders     → order objekt
+
+<span class="hl-dim">// Kľúče sa opakujú v každej</span>
+<span class="hl-dim">// odpovedi: "id","name",</span>
+<span class="hl-dim">// "created_at","status"...</span></pre>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--accent-3);margin-bottom:6px;">Navrhované riešenie</div>
+          <pre style="font-size:12px;"><span class="hl-dim">// Natrénuj na svojom API schéme</span>
+loxc_train(api_responses, n);
+<span class="hl-dim">// → loxc_myapi.h</span>
+
+<span class="hl-dim">// Server aj klient includujú</span>
+<span class="hl-dim">// rovnaký modul</span>
+#include "loxc_base.h"
+#include "loxc_myapi.h"
+
+<span class="hl-dim">// "created_at" → 2B kód</span>
+<span class="hl-dim">// "status":"active" → 3B</span>
+<span class="hl-green">// Úspora: ~65% · latency -40%</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- EMBEDDED LOGGING -->
+    <div style="margin-top:2.5rem;">
+      <div class="section-header" style="margin-bottom:1rem;">
+        <span class="tag tag-purple">Embedded · Logging</span>
+        <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:16px;color:var(--text);">Logy na zariadení s obmedzenou flash pamäťou</h3>
+      </div>
+      <p style="font-size:13px;color:var(--text-2);">Embedded zariadenie loguje chyby a udalosti do flash pamäte. Každý ušetrený bajt = dlhší log históriu pred prepísaním.</p>
+      <div class="grid-2" style="margin-top:1rem;">
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-3);margin-bottom:6px;">Typické log správy</div>
+          <pre style="font-size:12px;">ERR  sensor_read timeout 3
+WARN battery_low 18%
+INFO boot_complete v2.1.4
+ERR  network_conn failed
+INFO ota_update start</pre>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--accent-3);margin-bottom:6px;">Navrhované riešenie</div>
+          <pre style="font-size:12px;"><span class="hl-dim">// Modul natrénovaný na</span>
+<span class="hl-dim">// znaych log správach</span>
+#include "loxc_base.h"
+#include "loxc_lower.h"
+#include "loxc_digits.h"
+#include "loxc_mydevice_log.h"
+
+<span class="hl-dim">// "ERR","WARN","INFO" → 2 bity</span>
+<span class="hl-dim">// "_" → 1 bit (veľmi časté)</span>
+<span class="hl-green">// Flash využitie -55%</span>
+<span class="hl-green">// = 2× dlhšia história logov</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHAT PROTOKOL -->
+    <div style="margin-top:2.5rem;">
+      <div class="section-header" style="margin-bottom:1rem;">
+        <span class="tag tag-purple">Real-time · Chat protokol</span>
+        <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:16px;color:var(--text);">Vlastný binárny protokol pre správy</h3>
+      </div>
+      <p style="font-size:13px;color:var(--text-2);">Vlastný chat protokol kde každý bajt znižuje latency. loxc ako transportná vrstva – správy sa kódujú pred odoslaním, dekódujú po prijatí.</p>
+      <div class="grid-2" style="margin-top:1rem;">
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-3);margin-bottom:6px;">Packet štruktúra</div>
+          <pre style="font-size:12px;"><span class="hl-dim">// Bez loxc (raw JSON)</span>
+{
+  "to": "user42",
+  "msg": "Hey, are you there?",
+  "ts": 1746878400
+}
+<span class="hl-dim">= 68 bajtov / správa</span>
+
+<span class="hl-dim">// S loxc</span>
+<span class="hl-green">= ~28 bajtov / správa</span>
+<span class="hl-green">= -59% bandwidth</span></pre>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--accent-3);margin-bottom:6px;">Navrhované riešenie</div>
+          <pre style="font-size:12px;"><span class="hl-dim">// Server aj klient majú</span>
+<span class="hl-dim">// rovnaký modul (magic)</span>
+#include "loxc_base.h"
+#include "loxc_plain.h"
+#include "loxc_ngram_data.h"
+
+<span class="hl-dim">// Kódovanie pred odoslaním</span>
+loxc_encode(msg_json,
+           LOXC_PLAIN, out, &amp;len);
+
+<span class="hl-dim">// Dekódovanie po prijatí</span>
+loxc_decode(packet, pkt_len,
+           msg_json);</pre>
+        </div>
+      </div>
+      <div class="card" style="margin-top:0.75rem;background:rgba(107,255,184,0.05);border-color:rgba(107,255,184,0.2);">
+        <p style="font-size:13px;margin:0;color:var(--accent-3);">⚡ Keďže modul je v knižnici (magic), kódovanie začína okamžite bez handshaку – ideálne pre real-time protokoly kde každá milisekunda rozhoduje.</p>
+      </div>
+    </div>
+
+    <!-- DATABAZA -->
+    <div style="margin-top:2.5rem;">
+      <div class="section-header" style="margin-bottom:1rem;">
+        <span class="tag tag-purple">Databáza · Storage</span>
+        <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:16px;color:var(--text);">Kompresia stĺpcov s opakujúcimi sa hodnotami</h3>
+      </div>
+      <p style="font-size:13px;color:var(--text-2);">Databázové stĺpce ako "status", "country", "category" majú malý počet opakujúcich sa hodnôt. loxc s natrénovaným modulom na schéme tabuľky ich komprimuje extrémne efektívne.</p>
+      <div class="grid-2" style="margin-top:1rem;">
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-3);margin-bottom:6px;">Tabuľka orders (milióny riadkov)</div>
+          <pre style="font-size:12px;">status:   "pending" | "shipped"
+          | "delivered" | "cancelled"
+country:  "SK" | "CZ" | "AT" | "DE"
+category: "electronics" | "clothing"
+          | "food" | "books"</pre>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--accent-3);margin-bottom:6px;">Navrhované riešenie</div>
+          <pre style="font-size:12px;"><span class="hl-dim">// Natrénuj na hodnotách schémy</span>
+loxc_train(schema_values, n);
+
+<span class="hl-dim">// "pending"   → 3 bity</span>
+<span class="hl-dim">// "delivered" → 4 bity</span>
+<span class="hl-dim">// "SK"        → 2 bity</span>
+<span class="hl-green">// Milión riadkov: -70% storage</span>
+<span class="hl-green">// Dekódovanie: ~2ns / hodnota</span></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 12. FILOZOFIA -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">12</span>
+      <h2>Dizajnová filozofia</h2>
+    </div>
+
+    <div class="grid-2">
+      <div class="card" style="border-left: 3px solid var(--accent);">
+        <h3>Modularita</h3>
+        <p style="font-size: 13px;">Každý modul rieši jeden problém. Žiadny bloat. Includneš len čo skutočne potrebuješ – zvyšok neexistuje pre tvoj projekt.</p>
+        <pre style="font-size: 12px; margin-top: 0.75rem;"><span class="hl-dim">// Chceš len angličtinu?</span>
+<span class="hl-dim">// Dostaneš len angličtinu.</span>
+#include "loxc_base.h"
+#include "loxc_plain.h"</pre>
+      </div>
+      <div class="card" style="border-left: 3px solid var(--accent-3);">
+        <h3>Linker friendly</h3>
+        <p style="font-size: 13px;">Každý modul je samostatná kompilačná jednotka. Linker vyhodí čo nepoužívaš. Kritické pre embedded a IoT kde každý bajt rozhoduje.</p>
+        <pre style="font-size: 12px; margin-top: 0.75rem;"><span class="hl-green">rng_base.o    ~2.0 KB</span>
+<span class="hl-green">rng_lower.o   ~0.5 KB</span>
+<span class="hl-green">rng_digits.o  ~0.2 KB</span>
+<span class="hl-dim">rng_upper.o   ← vyhodené linkerom</span>
+<span class="hl-dim">─────────────────────</span>
+<span class="hl-green">Spolu:        ~2.7 KB</span>
+<span class="hl-dim">zstd:          ~400 KB</span></pre>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 1rem; background: rgba(123,111,255,0.05); border-color: rgba(123,111,255,0.2);">
+      <h3>Len knižnica – nič viac</h3>
+      <p style="font-size: 14px; color: var(--text);">loxc rieši jeden problém: <span class="highlight">kompresia a dekomprimácia</span>. Čo s tým urobíš je tvoja vec – CLI nástroj, sieťový protokol, databázový engine, IoT firmware. Rovnako ako zlib, sqlite, alebo openssl – len knižnica, nad ktorou každý stavia čo potrebuje.</p>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- 13. NASTROJE -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">13</span>
+      <h2>Dev nástroje (nie súčasť knižnice)</h2>
+    </div>
+
+    <p>Dva standalone nástroje pre vývojárov ktorí s knižnicou pracujú:</p>
+
+    <div class="grid-2" style="margin-top: 1rem;">
+      <div class="card card-accent">
+        <h3>loxc_train</h3>
+        <p style="font-size: 13px;">Trénovací nástroj. Vezme vzorky, analyzuje frekvencie, optimalizuje geometrie matíc, vygeneruje <code>.h</code> modul.</p>
+        <pre style="font-size: 12px; margin-top: 0.75rem;">loxc_train \
+  --input  samples/ \
+  --magic  0xLXC5 \
+  --ngram  6 \
+  --output rng_mymodule.h</pre>
+      </div>
+      <div class="card card-accent">
+        <h3>loxc_cli</h3>
+        <p style="font-size: 13px;">Jednoduchý CLI nástroj na testovanie a ladenie. Nie pre produkciu – len pre vývojárov.</p>
+        <pre style="font-size: 12px; margin-top: 0.75rem;">loxc encode --magic en file.txt \
+  > file.lxc
+
+loxc decode file.lxc</pre>
+      </div>
+    </div>
+  </div>
+
+
+  <div class="divider"></div>
+
+  <!-- 14. PRIKLADY -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">14</span>
+      <h2>Praktické ukážky</h2>
+    </div>
+
+    <p>Reálne príklady použitia pre rôzne formáty a domény.</p>
+
+    <!-- JSON -->
+    <div style="margin-top: 2rem;">
+      <div class="section-header" style="margin-bottom: 1rem;">
+        <span class="tag tag-purple">JSON</span>
+        <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:16px;color:var(--text);">REST API odpoveď</h3>
+      </div>
+      <div class="grid-2">
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-3);margin-bottom:6px;">VSTUP · 187 bajtov</div>
+          <pre style="font-size:12px;">{
+  "user": {
+    "id": 1042,
+    "name": "Martin Novak",
+    "email": "martin@example.com",
+    "role": "admin",
+    "active": true
+  }
+}</pre>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--accent-3);margin-bottom:6px;">KÓD</div>
+          <pre style="font-size:12px;"><span class="hl-dim">// JSON modul pozná { } [ ] : "</span>
+<span class="hl-dim">// ako časté n-gramy → krátke kódy</span>
+#include "loxc_base.h"
+#include "loxc_json.h"
+
+uint8_t out[256];
+size_t  len;
+loxc_encode(json_str, LOXC_JSON,
+           out, &amp;len);
+
+<span class="hl-dim">// Vstup:   187 B</span>
+<span class="hl-green">// Výstup:  ~74 B  (~60% úspora)</span></pre>
+        </div>
+      </div>
+      <div class="card card-green" style="margin-top:0.75rem;">
+        <p style="font-size:13px;margin:0;">JSON modul má natrénované n-gramy pre <code>"id":</code>, <code>"name":</code>, <code>true</code>, <code>false</code>, <code>null</code> – veľmi časté kľúče dostanú 3–4 bitové kódy namiesto plného textu.</p>
+      </div>
+    </div>
+
+    <!-- XML -->
+    <div style="margin-top:2.5rem;">
+      <div class="section-header" style="margin-bottom:1rem;">
+        <span class="tag tag-purple">XML</span>
+        <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:16px;color:var(--text);">Konfiguračný súbor</h3>
+      </div>
+      <div class="grid-2">
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-3);margin-bottom:6px;">VSTUP · 203 bajtov</div>
+          <pre style="font-size:12px;">&lt;config version="2.1"&gt;
+  &lt;database&gt;
+    &lt;host&gt;localhost&lt;/host&gt;
+    &lt;port&gt;5432&lt;/port&gt;
+    &lt;name&gt;mydb&lt;/name&gt;
+  &lt;/database&gt;
+&lt;/config&gt;</pre>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--accent-3);margin-bottom:6px;">KÓD</div>
+          <pre style="font-size:12px;"><span class="hl-dim">// XML modul pozná &lt; &gt; &lt;/ &gt;</span>
+<span class="hl-dim">// ako časté n-gramy</span>
+#include "loxc_base.h"
+#include "loxc_xml.h"
+
+loxc_encode(xml_str, LOXC_XML,
+           out, &amp;len);
+
+<span class="hl-dim">// LOCAL_DICT: "database" → 1B</span>
+<span class="hl-dim">// Vstup:  203 B</span>
+<span class="hl-green">// Výstup: ~81 B  (~60% úspora)</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- LOGY -->
+    <div style="margin-top:2.5rem;">
+      <div class="section-header" style="margin-bottom:1rem;">
+        <span class="tag tag-purple">LOGY</span>
+        <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:16px;color:var(--text);">Server log riadky</h3>
+      </div>
+      <div class="grid-2">
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-3);margin-bottom:6px;">VSTUP · opakujúci sa vzor</div>
+          <pre style="font-size:12px;">[2026-05-10 14:32:01] INFO
+  GET /api/users 200 12ms
+[2026-05-10 14:32:02] INFO
+  GET /api/users 200 11ms
+[2026-05-10 14:32:03] ERROR
+  POST /api/login 401 3ms</pre>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--accent-3);margin-bottom:6px;">KÓD</div>
+          <pre style="font-size:12px;"><span class="hl-dim">// Logy majú veľa opakovaní</span>
+<span class="hl-dim">// LOCAL_DICT ich zachytí</span>
+#include "loxc_base.h"
+#include "loxc_plain.h"
+
+loxc_encode(log_line, LOXC_PLAIN,
+           out, &amp;len);
+
+<span class="hl-dim">// "[2026-05-10" → 1B ref</span>
+<span class="hl-dim">// "GET /api/users 200" → 1B ref</span>
+<span class="hl-green">// Úspora: ~65-70%</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- KOD -->
+    <div style="margin-top:2.5rem;">
+      <div class="section-header" style="margin-bottom:1rem;">
+        <span class="tag tag-purple">KÓD</span>
+        <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:16px;color:var(--text);">Zdrojový kód C</h3>
+      </div>
+      <div class="grid-2">
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-3);margin-bottom:6px;">VSTUP · typický C kód</div>
+          <pre style="font-size:12px;">int loxc_encode(
+    const char *input,
+    uint32_t    magic,
+    uint8_t    *output,
+    size_t     *out_len)
+{
+    if (!input || !output)
+        return LOXC_ERR_NULL;
+    return loxc_encode_impl(
+        input, magic,
+        output, out_len);
+}</pre>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--accent-3);margin-bottom:6px;">KÓD</div>
+          <pre style="font-size:12px;"><span class="hl-dim">// CODE pozná C kľúčové slová</span>
+<span class="hl-dim">// int, return, if, const...</span>
+#include "loxc_base.h"
+#include "loxc_code.h"
+
+loxc_encode(src, LOXC_CODE,
+           out, &amp;len);
+
+<span class="hl-dim">// "return" → 6 bitov</span>
+<span class="hl-dim">// "const char *" → 8 bitov</span>
+<span class="hl-green">// Úspora: ~45-55%</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- CSV -->
+    <div style="margin-top:2.5rem;">
+      <div class="section-header" style="margin-bottom:1rem;">
+        <span class="tag tag-purple">CSV</span>
+        <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:16px;color:var(--text);">Tabuľkové dáta</h3>
+      </div>
+      <div class="grid-2">
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-3);margin-bottom:6px;">VSTUP · opakujúca sa štruktúra</div>
+          <pre style="font-size:12px;">id,name,email,role
+1,Martin,m@ex.com,admin
+2,Jana,j@ex.com,user
+3,Peter,p@ex.com,user
+4,Eva,e@ex.com,user</pre>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--accent-3);margin-bottom:6px;">KÓD</div>
+          <pre style="font-size:12px;"><span class="hl-dim">// CSV = skladáš len čo treba</span>
+#include "loxc_base.h"
+#include "loxc_lower.h"
+#include "loxc_digits.h"
+#include "loxc_punct.h"
+
+loxc_encode(csv, LOXC_CUSTOM,
+           out, &amp;len);
+
+<span class="hl-dim">// LOCAL_DICT:</span>
+<span class="hl-dim">// "@ex.com" → 1B ref</span>
+<span class="hl-dim">// ",user"   → 1B ref</span>
+<span class="hl-green">// Úspora: ~50-60%</span></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- CHAT -->
+    <div style="margin-top:2.5rem;">
+      <div class="section-header" style="margin-bottom:1rem;">
+        <span class="tag tag-purple">CHAT</span>
+        <h3 style="margin:0;text-transform:none;letter-spacing:0;font-size:16px;color:var(--text);">Krátke správy – kde loxc svieti</h3>
+      </div>
+      <div class="grid-2">
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--text-3);margin-bottom:6px;">VSTUP · krátky string</div>
+          <pre style="font-size:12px;">"Hello, how are you?"
+
+"See you tomorrow at 9am"
+
+"Can you send me the file?"</pre>
+        </div>
+        <div>
+          <div style="font-family:var(--mono);font-size:11px;color:var(--accent-3);margin-bottom:6px;">PREČO loxc VYHRÁ</div>
+          <pre style="font-size:12px;"><span class="hl-dim">// zstd pre krátky string:</span>
+<span class="hl-red">// overhead hlavičky ~20B</span>
+<span class="hl-red">// výsledok väčší než vstup!</span>
+
+<span class="hl-dim">// loxc:</span>
+<span class="hl-green">// tabuľka je v knižnici</span>
+<span class="hl-green">// 0B overhead tabuľky</span>
+<span class="hl-green">// okamžité kódovanie</span>
+<span class="hl-green">// Úspora: ~35-45%</span></pre>
+        </div>
+      </div>
+      <div class="card" style="margin-top:0.75rem;background:rgba(107,255,184,0.05);border-color:rgba(107,255,184,0.2);">
+        <p style="font-size:13px;margin:0;color:var(--accent-3);">⚡ Hlavná výhoda loxc – pre krátke stringy kde každý iný kompresor pridáva viac overhead než ušetrí, loxc pracuje efektívne od prvého znaku.</p>
+      </div>
+    </div>
+
+    <!-- SUHRN -->
+    <div style="margin-top:2.5rem;">
+      <h3>Porovnanie úspor</h3>
+      <table style="margin-top:1rem;">
+        <thead>
+          <tr><th>Formát</th><th>Modul</th><th>Typická úspora</th><th>Prečo</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>JSON</td><td><code>rng_json.h</code></td><td><span class="tag tag-green">~55–65%</span></td><td>časté kľúčové slová + štruktúra</td></tr>
+          <tr><td>XML</td><td><code>rng_xml.h</code></td><td><span class="tag tag-green">~55–65%</span></td><td>opakujúce sa tagy + LOCAL_DICT</td></tr>
+          <tr><td>Logy</td><td><code>rng_en.h</code></td><td><span class="tag tag-green">~60–70%</span></td><td>veľa opakovaní → LOCAL_DICT</td></tr>
+          <tr><td>Zdrojový kód</td><td><code>rng_code.h</code></td><td><span class="tag tag-green">~45–55%</span></td><td>kľúčové slová ako n-gramy</td></tr>
+          <tr><td>CSV</td><td>kompozícia</td><td><span class="tag tag-green">~50–60%</span></td><td>opakujúce sa hodnoty</td></tr>
+          <tr><td>Krátke správy</td><td><code>rng_en.h</code></td><td><span class="tag tag-green">~35–45%</span></td><td>0B overhead – iné tu zlyhajú</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+
+  <div class="divider"></div>
+
+  <!-- 15. OTVORENE OTAZKY -->
+  <div class="section">
+    <div class="section-header">
+      <span class="section-num">15</span>
+      <h2>Otvorené otázky a návrhy riešení</h2>
+    </div>
+
+    <p>Veci ktoré treba doriešiť pred produkčným nasadením.</p>
+
+    <!-- 1. STREAMING -->
+    <div class="card card-accent" style="margin-top:1.5rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+        <h3 style="margin:0;">Streaming / chunking</h3>
+        <span class="tag tag-red">Neriešené</span>
+      </div>
+      <p style="font-size:13px;">Čo ak je vstup príliš veľký na to aby bol celý v pamäti? LOCAL_DICT potrebuje vidieť celý vstup pred kódovaním – to je problém pre 10GB log súbor.</p>
+      <pre style="font-size:12px;margin-top:0.75rem;"><span class="hl-dim">// Navrhované riešenie: dvojfázový streaming</span>
+
+<span class="hl-dim">// Fáza 1: priechod len pre LOCAL_DICT analýzu</span>
+loxc_stream_t *s = loxc_stream_open(LOXC_PLAIN);
+loxc_stream_feed(s, chunk, len);   <span class="hl-dim">// len počíta frekvencie</span>
+loxc_stream_feed(s, chunk2, len2); <span class="hl-dim">// ...</span>
+loxc_stream_finalize_dict(s);      <span class="hl-dim">// zostav LOCAL_DICT</span>
+
+<span class="hl-dim">// Fáza 2: reálne kódovanie s hotovým dict</span>
+loxc_stream_encode(s, chunk, len, out, &amp;out_len);
+loxc_stream_close(s);</pre>
+      <div style="font-size:12px;color:var(--text-3);margin-top:0.75rem;">Trade-off: 2× priechod vstupom. Alternatíva: obmedzený LOCAL_DICT len pre prvých N znakov (sliding window).</div>
+    </div>
+
+    <!-- 2. PARALELIZMUS -->
+    <div class="card card-accent" style="margin-top:1rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+        <h3 style="margin:0;">Paralelné kódovanie</h3>
+        <span class="tag tag-green">Riešiteľné jednoducho</span>
+      </div>
+      <p style="font-size:13px;">Matice sú read-only po natrénovaní – žiadny shared state. Viacero vlákien môže kódovať súčasne bez zamykania. Treba to len explicitne navrhnúť a dokumentovať.</p>
+      <pre style="font-size:12px;margin-top:0.75rem;"><span class="hl-dim">// Matice sú konštanty – thread safe automaticky</span>
+<span class="hl-dim">// Každé vlákno má vlastný output buffer</span>
+<span class="hl-dim">// Žiadne mutex, žiadne atomic – len čisté čítanie</span>
+
+<span class="hl-green">// Thread 1                Thread 2</span>
+loxc_encode(in1, ...);     loxc_encode(in2, ...);
+<span class="hl-dim">// Obe pristupujú k tým istým maticiam – OK</span></pre>
+      <div style="font-size:12px;color:var(--text-3);margin-top:0.75rem;">Pozor: LOCAL_DICT analýza (hash table) nie je thread safe – každé vlákno potrebuje vlastnú inštanciu.</div>
+    </div>
+
+    <!-- 3. VERZIA MODULU -->
+    <div class="card card-accent" style="margin-top:1rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+        <h3 style="margin:0;">Verzia modulu – spätná kompatibilita</h3>
+        <span class="tag tag-red">Neriešené</span>
+      </div>
+      <p style="font-size:13px;">Magic identifikuje modul ale nie verziu matíc. Čo ak natrénuješ lepší model neskôr? Staré dáta zakódované v0 musia byť čitateľné knižnicou s v1 modulom.</p>
+      <pre style="font-size:12px;margin-top:0.75rem;"><span class="hl-dim">// Navrhované riešenie: magic obsahuje verziu</span>
+
+<span class="hl-dim">// Štruktúra magic (4 bajty):</span>
+<span class="hl-accent">[ LX ][ C ][ MODULE_ID ][ VERSION ]</span>
+  2B    1B      1B           1B
+
+<span class="hl-dim">// Príklady:</span>
+0x4C58 0x43 0x01 0x01  <span class="hl-dim">→ loxc, plain modul, verzia 1</span>
+0x4C58 0x43 0x01 0x02  <span class="hl-dim">→ loxc, plain modul, verzia 2</span>
+
+<span class="hl-dim">// Knižnica udržiava všetky verzie modulov</span>
+<span class="hl-dim">// Decoder vyberie správnu podľa magic</span></pre>
+      <div style="font-size:12px;color:var(--text-3);margin-top:0.75rem;">255 verzií na modul – v praxi viac než dosť. Staré verzie sa nikdy neodstránia, len označia ako deprecated.</div>
+    </div>
+
+    <!-- 4. BEZPECNOST -->
+    <div class="card card-accent" style="margin-top:1rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+        <h3 style="margin:0;">Bezpečnosť dekodéra – malformovaný vstup</h3>
+        <span class="tag tag-red">Kritické</span>
+      </div>
+      <p style="font-size:13px;">Čo ak prídu poškodené alebo zámerné malformované dáta? Decoder musí byť odolný – žiadne buffer overflow, žiadne nekonečné slučky.</p>
+      <pre style="font-size:12px;margin-top:0.75rem;"><span class="hl-dim">// Navrhované opatrenia:</span>
+
+<span class="hl-dim">// 1. Vždy kontroluj LEN z hlavičky</span>
+if (in_len &lt; LOXC_HEADER_SIZE) return LOXC_ERR_TRUNCATED;
+
+<span class="hl-dim">// 2. Max hĺbka matice je known at compile time</span>
+<span class="hl-dim">//    → žiadna nekonečná slučka možná</span>
+
+<span class="hl-dim">// 3. Output buffer vždy s explicitnou veľkosťou</span>
+loxc_decode(in, in_len, out, out_max, &amp;out_len);
+
+<span class="hl-dim">// 4. Fuzzing ako súčasť CI pipeline</span>
+<span class="hl-dim">//    AFL++ / libFuzzer na decoder</span></pre>
+      <div style="font-size:12px;color:var(--text-3);margin-top:0.75rem;">Keďže matice sú fixné a hĺbka je ohraničená tréningom, decoder má prirodzene obmedzené správanie – lepšia situácia než LZ77 sliding window.</div>
+    </div>
+
+    <!-- 5. CHECKSUM -->
+    <div class="card card-accent" style="margin-top:1rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+        <h3 style="margin:0;">Integrita dát – checksuma</h3>
+        <span class="tag tag-green">Riešiteľné jednoducho</span>
+      </div>
+      <p style="font-size:13px;">Jednoduchý CRC32 v hlavičke – decoder overí integritu pred dekódovaním. Voliteľné, ale odporúčané pre sieťový prenos a ukladanie.</p>
+      <pre style="font-size:12px;margin-top:0.75rem;"><span class="hl-dim">// Rozšírený formát hlavičky s CRC:</span>
+<span class="hl-accent">[ MAGIC 4B ][ VER 1B ][ MOD 1B ][ LEN 2B ][ CRC32 4B ][ DICT ][ DATA ]</span>
+
+<span class="hl-dim">// CRC32 pokrýva: DICT + DATA (nie hlavičku)</span>
+<span class="hl-dim">// Voliteľný flag v MOD byte:</span>
+#define LOXC_FLAG_CRC  0x80  <span class="hl-dim">// bit 7 = CRC prítomný</span>
+#define LOXC_FLAG_DICT 0x40  <span class="hl-dim">// bit 6 = LOCAL_DICT prítomný</span>
+
+<span class="hl-dim">// Decoder:</span>
+if (header.flags &amp; LOXC_FLAG_CRC)
+    loxc_verify_crc(data, len, header.crc);</pre>
+      <div style="font-size:12px;color:var(--text-3);margin-top:0.75rem;">CRC32 overhead: 4 bajty. Pre IoT kde každý bajt rozhoduje – voliteľné vypnutie flagom.</div>
+    </div>
+
+    <!-- 6. BENCHMARK -->
+    <div class="card card-accent" style="margin-top:1rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+        <h3 style="margin:0;">Validácia výkonu – benchmark suite</h3>
+        <span class="tag tag-green">Súčasť dev nástrojov</span>
+      </div>
+      <p style="font-size:13px;">Kým nespustíme reálne benchmarky, všetky výkonnostné čísla sú odhady. Treba benchmark suite ktorý porovná loxc vs zstd vs lz4 vs gzip na reálnych dátach.</p>
+      <pre style="font-size:12px;margin-top:0.75rem;">loxc_bench   --input  samples/   --rivals zstd,lz4,gzip   --report bench_report.html
+
+<span class="hl-dim">// Výstup: kompresný pomer, ns/znak,</span>
+<span class="hl-dim">// cache hit rate, pamäťová stopa</span>
+<span class="hl-dim">// pre každý formát a každého rivala</span></pre>
+      <div style="font-size:12px;color:var(--text-3);margin-top:0.75rem;">Benchmark je tretí dev nástroj vedľa <code>loxc_train</code> a <code>loxc_cli</code>. Výsledky benchmarku informujú ďalší tréning.</div>
+    </div>
+
+    <!-- SUHRN -->
+    <div style="margin-top:2rem;">
+      <h3>Prehľad</h3>
+      <table style="margin-top:1rem;">
+        <thead>
+          <tr><th>Otázka</th><th>Priorita</th><th>Návrh</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Streaming / chunking</td>
+            <td><span class="tag tag-red">Vysoká</span></td>
+            <td>Dvojfázový streaming, fáza 1 = dict analýza</td>
+          </tr>
+          <tr>
+            <td>Paralelné kódovanie</td>
+            <td><span class="tag tag-purple">Stredná</span></td>
+            <td>Matice sú read-only → thread safe automaticky</td>
+          </tr>
+          <tr>
+            <td>Verzia modulu</td>
+            <td><span class="tag tag-red">Vysoká</span></td>
+            <td>VERSION byte v magic čísle</td>
+          </tr>
+          <tr>
+            <td>Bezpečnosť dekodéra</td>
+            <td><span class="tag tag-red">Kritická</span></td>
+            <td>Bounds checking + fuzzing v CI</td>
+          </tr>
+          <tr>
+            <td>Checksuma</td>
+            <td><span class="tag tag-purple">Stredná</span></td>
+            <td>Voliteľný CRC32 flagom v hlavičke</td>
+          </tr>
+          <tr>
+            <td>Benchmark suite</td>
+            <td><span class="tag tag-green">Nízka</span></td>
+            <td>loxc_bench ako tretí dev nástroj</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div class="footer-left">loxc · v0.1-draft · Experimentálna fáza</div>
+    <div class="footer-status">
+      <div class="dot-pulse"></div>
+      Návrh prebieha
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

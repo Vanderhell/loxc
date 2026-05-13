@@ -1,0 +1,266 @@
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -c -o src/loxc.o src/loxc.c
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -c -o src/loxc_base.o src/loxc_base.c
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -c -o src/loxc_plain.o src/loxc_plain.c
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -c -o src/loxc_matrix.o src/loxc_matrix.c
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -c -o src/loxc_dict.o src/loxc_dict.c
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -c -o src/loxc_stream.o src/loxc_stream.c
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -c -o src/loxc_strategy.o src/loxc_strategy.c
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -c -o src/loxc_hier.o src/loxc_hier.c
+ar rcs libloxc.a src/loxc.o src/loxc_base.o src/loxc_plain.o src/loxc_matrix.o src/loxc_dict.o src/loxc_stream.o src/loxc_strategy.o src/loxc_hier.o
+ranlib libloxc.a
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -o tests/test_basic tests/test_basic.c libloxc.a 
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -o tests/test_matrix tests/test_matrix.c libloxc.a 
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -o tests/test_dict tests/test_dict.c libloxc.a 
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -o tests/test_stream tests/test_stream.c libloxc.a 
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -o tests/test_header tests/test_header.c libloxc.a 
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -o tests/test_plain tests/test_plain.c libloxc.a 
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -o tests/test_strategy tests/test_strategy.c libloxc.a 
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -o tests/test_hier tests/test_hier.c libloxc.a 
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -o tests/test_registry tests/test_registry.c libloxc.a 
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -o tools/loxc_train tools/loxc_train.c libloxc.a 
+./tools/loxc_train --input trainings/demo_corpus.txt --output modules/loxc_demo --module-name demo --module-id 10
+Hello from loxc_train: input=trainings/demo_corpus.txt (738046 bytes)
+  output: modules/loxc_demo
+  module: demo (id=10)
+Step 1: Uni-grams counted
+Step 2: Dict analyzed (7471 entries)
+Step 3: Subtracting dict entries...
+Step 3: Dict subtraction complete (565513 chars covered)
+
+=== Frequency Analysis ===
+Total chars in text: 738046
+Chars covered by dict: 565513 (76.6%)
+Unique symbols: 4105 (34 chars + 4071 dict entries)
+Dict entries analyzed: 7471 total, 4071 accepted (gain > 0), 3400 rejected
+
+Top 10 symbols:
+  ID | Symbol       | Count      | % of text
+-----+--------------+------------+-----------
+  0 | ' '          |     123122 |  16.68%
+  1 | 0x0a         |      14537 |   1.97%
+  2 | ','          |       9850 |   1.33%
+  3 | '.'          |       6452 |   0.87%
+  4 | 0x80         |       4591 |   0.62%
+  5 | 0xe2         |       4591 |   0.62%
+  6 | the          |       4352 |   0.59%
+  7 | and          |       3609 |   0.49%
+  8 | her          |       2175 |   0.29%
+  9 | 0x9c         |       1919 |   0.26%
+
+Dict entries: 7471 entries
+
+Dict entries (top 20):
+  ID | Entry          | Count | Gain (bits)
+-----+----------------+-------+------------
+   0 | the            |  4352 |      34784
+   1 | to             |  4266 |        -24
+   2 | of             |  3828 |        -24
+   3 | and            |  3609 |      28840
+   4 | her            |  2175 |      17368
+   5 | I              |  2098 |     -16800
+   6 | a              |  1982 |     -15872
+   7 | in             |  1902 |        -24
+   8 | was            |  1868 |      14912
+   9 | that           |  1563 |      24968
+  10 | not            |  1461 |      11656
+  11 | she            |  1408 |      11232
+  12 | it             |  1333 |        -24
+  13 | be             |  1259 |        -24
+  14 | his            |  1206 |       9616
+  15 | as             |  1169 |        -24
+  16 | had            |  1154 |       9200
+  17 | you            |  1148 |       9152
+  18 | he             |  1109 |        -24
+  19 | for            |  1073 |       8552
+...
+
+Dict entries (bottom 20):
+  ID | Entry          | Count | Gain (bits)
+-----+----------------+-------+------------
+7451 | comparisons    |     1 |        -24
+7452 | submitted      |     1 |        -24
+7453 | reluctance     |     1 |        -24
+7454 | revolution     |     1 |        -24
+7455 | ingratitude    |     1 |        -24
+7456 | congratulatory |     1 |        -24
+7457 | Any            |     1 |        -24
+7458 | heedless       |     1 |        -24
+7459 | bills          |     1 |        -24
+7460 | Bath           |     1 |        -24
+7461 | _talk_         |     1 |        -24
+7462 | retain         |     1 |        -24
+7463 | heretofore     |     1 |        -24
+7464 | arrear         |     1 |        -24
+7465 | sportive       |     1 |        -24
+7466 | liberties      |     1 |        -24
+7467 | pollution      |     1 |        -24
+7468 | city           |     1 |        -24
+7469 | uniting        |     1 |        -24
+7470 | ear            |     1 |        -24
+
+=== Overhead Estimation ===
+Header size: 19 bytes
+Dict overhead (accepted): 62354 bytes
+Symbol table (est.): 32840 bytes
+Total overhead: 95213 bytes (12.9% of input)
+
+=== Strategy Selection ===
+Selected strategy: FLAT
+Predicted bits (encoding only): 3489486
+Bits per symbol: 13.00
+
+Strategy costs (all symbols, bits):
+  FLAT:  3489486 bits
+  HIER8: 6149088 bits (levels=74)
+  HIER4: 15823064 bits (levels=343)
+
+=== Output Size Estimation ===
+Data bits (encoding): 3489486
+Data bytes (rounded): 436186
+Header: 19 bytes
+Dict overhead: 62354 bytes
+Symbol table: 32840 bytes
+Total output: 531399 bytes (72.0% of input)
+
+=== KROK 4: Header File Generation ===
+Generated: modules/loxc_demo.h
+Module name: demo
+Module ID: 10
+Strategy: LOXC_STRATEGY_FLAT_FIXED_WIDTH
+Symbols: 4105
+Levels: 0
+
+=== Generated Header File Content ===
+#ifndef LOXC_MOD_DEMO_H
+#define LOXC_MOD_DEMO_H
+
+#include <stddef.h> /* size_t */
+#include <stdint.h> /* uint32_t etc. */
+
+#include "loxc.h"          /* loxc_module_t */
+#include "loxc_stream.h"   /* writer/reader */
+#include "loxc_strategy.h" /* strategy enum */
+
+/* AUTO-GENERATED by loxc_train. DO NOT EDIT.
+ * Source: trainings/demo_corpus.txt (738046 bytes)
+ * Generated: 2026-05-13 17:31:16
+ * Symbols: 4105, Strategy: FLAT_FIXED_WIDTH
+ * Predicted compression: 72.0%
+ */
+
+#define LOXC_MOD_DEMO_ID        10
+#define LOXC_MOD_DEMO_VERSION   2
+#define LOXC_MOD_DEMO_STRATEGY  LOXC_STRATEGY_FLAT_FIXED_WIDTH
+#define LOXC_MOD_DEMO_SYMBOLS   4105
+#define LOXC_MOD_DEMO_LEVELS    0
+
+/* Encode plain text → bit stream */
+int loxc_mod_demo_encode(const char *text, size_t text_len, loxc_writer_t *w);
+
+/* Decode bit stream → plain text */
+int loxc_mod_demo_decode(loxc_reader_t *r, char *out, size_t *inout_len);
+
+/* Register module in global registry */
+int loxc_mod_demo_register(void);
+
+#endif /* LOXC_MOD_DEMO_H */
+
+=== KROK 5: Source File Generation ===
+Generated: modules/loxc_demo.c
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -Imodules -c -o modules/loxc_demo.o modules/loxc_demo.c
+cc -std=c99 -Wall -Wextra -O2 -Iinclude -Imodules -o tests/test_train_demo tests/test_train_demo.c modules/loxc_demo.o libloxc.a 
+test_basic: PASS
+test_matrix: PASS
+test_dict: PASS (repeated long word)
+test_dict: PASS (short word excluded)
+test_dict: PASS (gain formula)
+test_dict: PASS (encode/decode)
+test_dict: PASS
+test_stream: PASS (write8/read8)
+test_stream: PASS (mixed lengths)
+test_stream: PASS (boundary)
+test_stream: PASS (eof)
+test_stream: PASS (write_bytes/read_bytes)
+test_stream: PASS
+test_header: PASS (no crc)
+test_header: PASS (with crc)
+test_header: PASS (invalid magic)
+test_header: PASS (truncated)
+test_header: PASS (strategy hierarchical_8)
+test_header: PASS (endianness)
+test_header: PASS (reserved ignored)
+test_header: PASS (all)
+test_plain: PASS (roundtrip)
+test_plain: PASS (unknown)
+test_plain: PASS
+=== test_strategy: Cost Estimation Selector Verification ===
+
+Scenario 1: Zipf(30, 500 occurrences):
+  Symbols: 30 | FLAT=2420 | HIER8=2904 | HIER4=2444
+  Actual minimum: FLAT (2420 bits)
+  Selector chose: strategy=0, bits=2420
+  ✓ PASS — selector picked minimum
+
+Scenario 2: Zipf(100, 5000 occurrences):
+  Symbols: 100 | FLAT=34650 | HIER8=32898 | HIER4=43300
+  Actual minimum: HIER8 (32898 bits)
+  Selector chose: strategy=1, bits=32898
+  ✓ PASS — selector picked minimum
+
+Scenario 3: Zipf(256, 50000 occurrences):
+  Symbols: 256 | FLAT=399040 | HIER8=439512 | HIER4=807620
+  Actual minimum: FLAT (399040 bits)
+  Selector chose: strategy=0, bits=399040
+  ✓ PASS — selector picked minimum
+
+Scenario 4: Lorem Ipsum text:
+  Symbols: 28 | FLAT=2225 | HIER8=2670 | HIER4=2104
+  Actual minimum: HIER4 (2104 bits)
+  Selector chose: strategy=2, bits=2104
+  ✓ PASS — selector picked minimum
+
+Scenario 5: C source code sample:
+  Symbols: 59 | FLAT=2730 | HIER8=2748 | HIER4=3040
+  Actual minimum: FLAT (2730 bits)
+  Selector chose: strategy=0, bits=2730
+  ✓ PASS — selector picked minimum
+
+=== test_strategy: PASS (all scenarios) ===
+
+KEY FINDING:
+loxc_strategy_select correctly chooses the strategy with minimum bits.
+HIER4 wins for small alphabets (16-32 symbols)
+HIER8 wins for medium alphabets (60-150 symbols) with skewed distribution
+FLAT wins for large uniform distributions
+The selector picks the correct strategy automatically.
+=== test_hier: Hierarchical Encoder/Decoder ===
+
+Test 1: HIER8 with 30 symbols (all on L0)
+  Encoded bits: 184 (expected ~180, stored in 23 bytes)
+  ✓ PASS (round-trip OK)
+
+Test 2: HIER8 with 100 symbols (L0 + L1)
+  Encoded bits: 864 (expected ~864, stored in 108 bytes)
+  ✓ PASS (round-trip OK)
+
+Test 3: HIER8 with 200 symbols (L0 + L1 + L2 + L3)
+  Encoded bits: 2784 (expected ~2784, stored in 348 bytes)
+  ✓ PASS (round-trip OK)
+
+Test 4: HIER4 with 20 symbols (L0 + L1)
+  Encoded bits: 104 (expected ~100, stored in 13 bytes)
+  ✓ PASS (round-trip OK)
+
+Test 5: Edge case — symbol not in table
+  ✓ PASS (correctly rejected symbol 999)
+
+Test 6: Edge case — truncated stream mid-escape chain
+  ✓ PASS (correctly detected truncation)
+
+=== test_hier: PASS (all scenarios) ===
+test_registry: PASS (register+dispatch)
+test_registry: PASS (unknown module name)
+test_registry: PASS (duplicate register)
+test_registry: PASS (all)
+encode failed: 5
+make: *** [Makefile:72: test] Error 1
