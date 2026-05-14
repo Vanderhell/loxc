@@ -16,6 +16,7 @@ typedef struct loxc_module {
                 size_t *out_len);
   int (*decode)(const uint8_t *in, size_t in_len, uint8_t *out, size_t out_cap,
                 size_t *out_len);
+  void *private_data;
 } loxc_module_t;
 
 /* Modul sa zaregistruje pri svojom startup (constructor alebo explicitne). */
@@ -25,6 +26,16 @@ int loxc_module_register(const loxc_module_t *module);
 int loxc_compress(const char *module_name, const char *input, size_t input_len,
                   uint8_t *output, size_t *output_capacity,
                   size_t *output_actual);
+
+int loxc_compress_with_options(const char *module_name,
+                               const char *input, size_t input_len,
+                               uint8_t *output, size_t *output_capacity,
+                               size_t *output_actual,
+                               int embed_table);
+
+int loxc_module_get_table_blob(const loxc_module_t *module,
+                               const uint8_t **out_blob,
+                               size_t *out_size);
 
 int loxc_decompress(const uint8_t *input, size_t input_len, char *output,
                     size_t *output_capacity, size_t *output_actual);

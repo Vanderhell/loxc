@@ -9,6 +9,13 @@
 #include "loxc_dict.h"
 #include "loxc_hier.h"
 #include "loxc_strategy.h"
+#include "loxc_base.h"
+#include "loxc_tab.h"
+
+enum {
+  LOXC_TRAIN_MAX_INPUTS = 128,
+  LOXC_TRAIN_MAX_TOTAL_BYTES = 100 * 1024 * 1024
+};
 
 /* Symbol record: either a character or a dict entry */
 typedef struct {
@@ -147,6 +154,222 @@ static int cmp_dict_emit(const void *a, const void *b) {
   return 0;
 }
 
+static void write_u16_le_buf(uint8_t *p, uint16_t v) {
+  p[0] = (uint8_t)(v & 0xFFu);
+  p[1] = (uint8_t)((v >> 8) & 0xFFu);
+}
+
+static void write_u32_le_buf(uint8_t *p, uint32_t v) {
+  p[0] = (uint8_t)(v & 0xFFu);
+  p[1] = (uint8_t)((v >> 8) & 0xFFu);
+  p[2] = (uint8_t)((v >> 16) & 0xFFu);
+  p[3] = (uint8_t)((v >> 24) & 0xFFu);
+}
+
+static int write_all(FILE *f, const void *buf, size_t len) {
+  if (len == 0) return 0;
+  return fwrite(buf, 1, len, f) == len ? 0 : 1;
+}
+
+static int write_loxctab_file(
+    const char *path,
+    const symbol_rec_t *symbols, size_t symbol_count,
+    const uint32_t *byte_to_symbol,
+    const uint32_t *dict_symbol_ids, size_t dict_count,
+    const uint8_t *dict_data, const uint32_t *dict_offsets,
+    uint8_t strategy_id,
+    uint8_t base_size,
+    uint8_t bits_per_level,
+    uint16_t level_count) {
+  if (path == NULL || symbols == NULL || byte_to_symbol == NULL ||
+      dict_symbol_ids == NULL || dict_offsets == NULL) {
+    return 1;
+  }
+
+  const uint32_t dict_data_size = dict_offsets[dict_count];
+  if (dict_data_size > 0 && dict_data == NULL) return 1;
+  if (symbol_count > UINT32_MAX || dict_count > UINT32_MAX) return 1;
+  if (symbol_count > (SIZE_MAX - 1024u) / 5u) return 1;
+  if (dict_count > (SIZE_MAX / 4u) - 1u) return 1;
+
+  const size_t data_size_sz =
+      1024u + (symbol_count * 5u) + ((dict_count + 1u) * 4u) + 4u +
+      (size_t)dict_data_size;
+  if (data_size_sz > UINT32_MAX) return 1;
+  const uint32_t data_size = (uint32_t)data_size_sz;
+
+  uint8_t header[LOXC_TAB_HEADER_SIZE];
+  memset(header, 0, sizeof(header));
+  memcpy(header, LOXC_TAB_MAGIC, 4);
+  header[4] = (uint8_t)LOXC_TAB_VERSION;
+  header[5] = strategy_id;
+  header[6] = base_size;
+  header[7] = bits_per_level;
+  write_u16_le_buf(header + 8, level_count);
+  write_u32_le_buf(header + 12, (uint32_t)symbol_count);
+  write_u32_le_buf(header + 16, (uint32_t)dict_count);
+  write_u32_le_buf(header + 20, data_size);
+
+  uint8_t *data = (uint8_t *)malloc(data_size_sz);
+  if (data == NULL) {
+    fprintf(stderr, "Error: malloc loxctab data\n");
+    return 1;
+  }
+
+  size_t pos = 0;
+  for (int i = 0; i < 256; i++) {
+    write_u32_le_buf(data + pos, byte_to_symbol[i]);
+    pos += 4u;
+  }
+
+  for (size_t i = 0; i < symbol_count; i++) {
+    data[pos++] = symbols[i].is_dict ? 1u : 0u;
+    if (!symbols[i].is_dict) {
+      write_u32_le_buf(data + pos, (uint32_t)symbols[i].char_val);
+    } else {
+      uint32_t dict_idx = 0xFFFFFFFFu;
+      for (uint32_t d = 0; d < (uint32_t)dict_count; d++) {
+        if (dict_symbol_ids[d] == symbols[i].symbol_id) {
+          dict_idx = d;
+          break;
+        }
+      }
+      if (dict_idx == 0xFFFFFFFFu) {
+        fprintf(stderr, "Error: dict symbol id %u has no dict index\n",
+                (unsigned)symbols[i].symbol_id);
+        free(data);
+        return 1;
+      }
+      write_u32_le_buf(data + pos, dict_idx);
+    }
+    pos += 4u;
+  }
+
+  for (size_t i = 0; i < dict_count + 1u; i++) {
+    write_u32_le_buf(data + pos, dict_offsets[i]);
+    pos += 4u;
+  }
+
+  write_u32_le_buf(data + pos, dict_data_size);
+  pos += 4u;
+  if (dict_data_size > 0) {
+    memcpy(data + pos, dict_data, dict_data_size);
+    pos += dict_data_size;
+  }
+
+  if (pos != data_size_sz) {
+    fprintf(stderr, "Error: internal loxctab size mismatch\n");
+    free(data);
+    return 1;
+  }
+
+  uint8_t *crc_input = (uint8_t *)malloc(LOXC_TAB_HEADER_SIZE + data_size_sz);
+  if (crc_input == NULL) {
+    fprintf(stderr, "Error: malloc loxctab crc input\n");
+    free(data);
+    return 1;
+  }
+  memcpy(crc_input, header, LOXC_TAB_HEADER_SIZE);
+  memcpy(crc_input + LOXC_TAB_HEADER_SIZE, data, data_size_sz);
+  const uint32_t crc = loxc_crc32(crc_input, LOXC_TAB_HEADER_SIZE + data_size_sz);
+  free(crc_input);
+
+  uint8_t trailer[LOXC_TAB_TRAILER_SIZE];
+  write_u32_le_buf(trailer, crc);
+
+  FILE *f = fopen(path, "wb");
+  if (f == NULL) {
+    fprintf(stderr, "Error: cannot create %s: %s\n", path, strerror(errno));
+    free(data);
+    return 1;
+  }
+
+  int wr = 0;
+  wr |= write_all(f, header, sizeof(header));
+  wr |= write_all(f, data, data_size_sz);
+  wr |= write_all(f, trailer, sizeof(trailer));
+  if (fclose(f) != 0) wr = 1;
+  free(data);
+  if (wr != 0) {
+    fprintf(stderr, "Error: failed writing %s\n", path);
+    return 1;
+  }
+
+  printf("Generated: %s\n", path);
+  printf("  Header: %u bytes\n", (unsigned)LOXC_TAB_HEADER_SIZE);
+  printf("  Data: %u bytes\n", (unsigned)data_size);
+  printf("  Trailer (CRC): %u bytes\n", (unsigned)LOXC_TAB_TRAILER_SIZE);
+  return 0;
+}
+
+static int write_loxctab_from_emit(const char *output,
+                                   const symbol_rec_t *symbols,
+                                   size_t symbol_count,
+                                   const uint32_t byte_to_symbol[256],
+                                   const dict_emit_t *dict_emit,
+                                   size_t dict_count,
+                                   uint8_t strategy_id,
+                                   uint8_t base_size,
+                                   uint8_t bits_per_level,
+                                   uint16_t level_count) {
+  char tab_path[512];
+  snprintf(tab_path, sizeof(tab_path), "%s.loxctab", output);
+
+  uint32_t *dict_offsets =
+      (uint32_t *)malloc((dict_count + 1u) * sizeof(uint32_t));
+  uint32_t *dict_symbol_ids =
+      (uint32_t *)malloc((dict_count > 0 ? dict_count : 1u) * sizeof(uint32_t));
+  if (dict_offsets == NULL || dict_symbol_ids == NULL) {
+    fprintf(stderr, "Error: malloc loxctab dict metadata\n");
+    free(dict_offsets);
+    free(dict_symbol_ids);
+    return 1;
+  }
+
+  size_t dict_data_size_sz = 0;
+  for (size_t i = 0; i < dict_count; i++) {
+    if (dict_emit[i].len > UINT32_MAX - dict_data_size_sz) {
+      fprintf(stderr, "Error: loxctab dict data too large\n");
+      free(dict_offsets);
+      free(dict_symbol_ids);
+      return 1;
+    }
+    dict_offsets[i] = (uint32_t)dict_data_size_sz;
+    dict_symbol_ids[i] = dict_emit[i].symbol_id;
+    dict_data_size_sz += dict_emit[i].len;
+  }
+  dict_offsets[dict_count] = (uint32_t)dict_data_size_sz;
+
+  uint8_t *dict_data = NULL;
+  if (dict_data_size_sz > 0) {
+    dict_data = (uint8_t *)malloc(dict_data_size_sz);
+    if (dict_data == NULL) {
+      fprintf(stderr, "Error: malloc loxctab dict data\n");
+      free(dict_offsets);
+      free(dict_symbol_ids);
+      return 1;
+    }
+  }
+
+  size_t pos = 0;
+  for (size_t i = 0; i < dict_count; i++) {
+    if (dict_emit[i].len > 0) {
+      memcpy(dict_data + pos, dict_emit[i].bytes, dict_emit[i].len);
+      pos += dict_emit[i].len;
+    }
+  }
+
+  printf("\n=== KROK 6: Loxctab File Generation ===\n");
+  int rc = write_loxctab_file(tab_path, symbols, symbol_count, byte_to_symbol,
+                              dict_symbol_ids, dict_count, dict_data,
+                              dict_offsets, strategy_id, base_size,
+                              bits_per_level, level_count);
+  free(dict_data);
+  free(dict_offsets);
+  free(dict_symbol_ids);
+  return rc;
+}
+
 static int generate_c_file_flat(const char *input, size_t data_len,
                                 const char *module_name,
                                 const char *name_upper,
@@ -173,17 +396,24 @@ static int generate_c_file_hier(const char *input, size_t data_len,
                                 const char *func_prefix,
                                 const loxc_hier_t *hier);
 
-static int parse_args(int argc, char *argv[], const char **input,
+static int parse_args(int argc, char *argv[], const char *inputs[],
+                      size_t *input_count,
                       const char **output, const char **module_name,
                       uint8_t *module_id) {
-  *input = NULL;
+  *input_count = 0;
   *output = NULL;
   *module_name = NULL;
   *module_id = 0;
 
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--input") == 0 && i + 1 < argc) {
-      *input = argv[++i];
+      if (*input_count >= LOXC_TRAIN_MAX_INPUTS) {
+        fprintf(stderr, "Error: too many --input files (max %u)\n",
+                (unsigned)LOXC_TRAIN_MAX_INPUTS);
+        return 1;
+      }
+      inputs[*input_count] = argv[++i];
+      (*input_count)++;
     } else if (strcmp(argv[i], "--output") == 0 && i + 1 < argc) {
       *output = argv[++i];
     } else if (strcmp(argv[i], "--module-name") == 0 && i + 1 < argc) {
@@ -199,10 +429,10 @@ static int parse_args(int argc, char *argv[], const char **input,
     }
   }
 
-  if (*input == NULL || *output == NULL || *module_name == NULL ||
+  if (*input_count == 0 || *output == NULL || *module_name == NULL ||
       *module_id == 0) {
     fprintf(stderr,
-            "Usage: loxc_train --input <file> --output <dir> --module-name "
+            "Usage: loxc_train --input <file> [--input <file> ...] --output <dir> --module-name "
             "<name> --module-id <0-255>\n");
     return 1;
   }
@@ -933,6 +1163,107 @@ static int load_file(const char *path, uint8_t **out_data, size_t *out_len) {
   return 0;
 }
 
+static int get_file_size(const char *path, size_t *out_size) {
+  FILE *fp = fopen(path, "rb");
+  if (fp == NULL) {
+    fprintf(stderr, "Error: cannot open %s: %s\n", path, strerror(errno));
+    return 1;
+  }
+
+  if (fseek(fp, 0, SEEK_END) != 0) {
+    fprintf(stderr, "Error: cannot seek %s: %s\n", path, strerror(errno));
+    fclose(fp);
+    return 1;
+  }
+
+  long size = ftell(fp);
+  fclose(fp);
+  if (size < 0 || size > LOXC_TRAIN_MAX_TOTAL_BYTES) {
+    fprintf(stderr, "Error: file size invalid or too large: %s\n", path);
+    return 1;
+  }
+
+  *out_size = (size_t)size;
+  return 0;
+}
+
+static int load_input_files(const char *inputs[], size_t input_count,
+                            uint8_t **out_data, size_t *out_len) {
+  *out_data = NULL;
+  *out_len = 0;
+  if (input_count == 1) return load_file(inputs[0], out_data, out_len);
+
+  size_t total = 0;
+  for (size_t i = 0; i < input_count; i++) {
+    size_t size = 0;
+    if (get_file_size(inputs[i], &size) != 0) return 1;
+    if (size > (size_t)LOXC_TRAIN_MAX_TOTAL_BYTES - total) {
+      fprintf(stderr, "Error: combined input size exceeds %u bytes\n",
+              (unsigned)LOXC_TRAIN_MAX_TOTAL_BYTES);
+      return 1;
+    }
+    total += size;
+  }
+
+  uint8_t *data = NULL;
+  if (total > 0) {
+    data = (uint8_t *)malloc(total);
+    if (data == NULL) {
+      fprintf(stderr, "Error: malloc failed for combined input\n");
+      return 1;
+    }
+  }
+
+  size_t offset = 0;
+  for (size_t i = 0; i < input_count; i++) {
+    size_t size = 0;
+    if (get_file_size(inputs[i], &size) != 0) {
+      free(data);
+      return 1;
+    }
+
+    FILE *fp = fopen(inputs[i], "rb");
+    if (fp == NULL) {
+      fprintf(stderr, "Error: cannot open %s: %s\n", inputs[i], strerror(errno));
+      free(data);
+      return 1;
+    }
+
+    size_t nread = 0;
+    if (size > 0) nread = fread(data + offset, 1, size, fp);
+    fclose(fp);
+    if (nread != size) {
+      fprintf(stderr, "Error: read %zu bytes from %s, expected %zu\n",
+              nread, inputs[i], size);
+      free(data);
+      return 1;
+    }
+    offset += size;
+  }
+
+  *out_data = data;
+  *out_len = total;
+  return 0;
+}
+
+static void describe_inputs(const char *inputs[], size_t input_count,
+                            char *out, size_t out_cap) {
+  if (out_cap == 0) return;
+  out[0] = '\0';
+  size_t used = 0;
+  for (size_t i = 0; i < input_count; i++) {
+    const char *sep = (i == 0) ? "" : " + ";
+    int n = snprintf(out + used, out_cap - used, "%s%s", sep, inputs[i]);
+    if (n < 0) break;
+    if ((size_t)n >= out_cap - used) {
+      used = out_cap - 1;
+      out[used] = '\0';
+      break;
+    }
+    used += (size_t)n;
+  }
+}
+
 static void free_symbol_recs(symbol_rec_t *symbols, size_t count) {
   if (symbols == NULL) return;
   for (size_t i = 0; i < count; i++) {
@@ -1297,21 +1628,29 @@ static int analyze_freqs(const uint8_t *data, size_t data_len,
 }
 
 int main(int argc, char *argv[]) {
-  const char *input, *output, *module_name;
+  const char *inputs[LOXC_TRAIN_MAX_INPUTS];
+  size_t input_count = 0;
+  const char *output, *module_name;
   uint8_t module_id;
 
-  if (parse_args(argc, argv, &input, &output, &module_name, &module_id) !=
-      0) {
+  if (parse_args(argc, argv, inputs, &input_count, &output, &module_name,
+                 &module_id) != 0) {
     return 1;
   }
 
   uint8_t *data = NULL;
   size_t data_len = 0;
-  if (load_file(input, &data, &data_len) != 0) {
+  if (load_input_files(inputs, input_count, &data, &data_len) != 0) {
     return 1;
   }
 
-  printf("Hello from loxc_train: input=%s (%zu bytes)\n", input, data_len);
+  char input_desc[512];
+  describe_inputs(inputs, input_count, input_desc, sizeof(input_desc));
+
+  printf("Hello from loxc_train: inputs=%zu (%zu bytes)\n", input_count, data_len);
+  for (size_t i = 0; i < input_count; i++) {
+    printf("  input[%zu]: %s\n", i, inputs[i]);
+  }
   printf("  output: %s\n", output);
   printf("  module: %s (id=%u)\n", module_name, module_id);
 
@@ -1476,7 +1815,7 @@ int main(int argc, char *argv[]) {
           " * Symbols: %zu, Strategy: %s\n"
           " * Predicted compression: %.1f%%\n"
           " */\n",
-          input, data_len, generated_at, symbol_count, strat_name,
+          input_desc, data_len, generated_at, symbol_count, strat_name,
           compression_ratio);
   fprintf(hfile, "\n");
   fprintf(hfile, "#define LOXC_MOD_%s_ID        %u\n", name_upper, module_id);
@@ -1583,10 +1922,15 @@ int main(int argc, char *argv[]) {
       if (sid < symbol_count) symbol_to_dict_index[sid] = i;
     }
 
-    gen_rc = generate_c_file_flat(input, data_len, module_name, name_upper,
+    gen_rc = generate_c_file_flat(input_desc, data_len, module_name, name_upper,
                                   generated_at, symbols, symbol_count,
                                   dict_emit, dict_count, byte_to_symbol,
                                   symbol_to_dict_index, func_prefix);
+    if (gen_rc == 0) {
+      gen_rc = write_loxctab_from_emit(output, symbols, symbol_count,
+                                       byte_to_symbol, dict_emit, dict_count,
+                                       (uint8_t)result.strategy, 0u, 0u, 0u);
+    }
 
     free(symbol_to_dict_index);
     free(dict_emit);
@@ -1648,12 +1992,23 @@ int main(int argc, char *argv[]) {
       if (sid < symbol_count) symbol_to_dict_index[sid] = i;
     }
 
-    gen_rc = generate_c_file_hier(input, data_len, module_name, name_upper,
+    gen_rc = generate_c_file_hier(input_desc, data_len, module_name, name_upper,
                                   generated_at, result.strategy,
                                   symbols, symbol_count,
                                   dict_emit, dict_count,
                                   byte_to_symbol, symbol_to_dict_index,
                                   func_prefix, &hier);
+    if (gen_rc == 0) {
+      const uint8_t base_size =
+          (result.strategy == LOXC_STRATEGY_HIERARCHICAL_8) ? 8u : 4u;
+      const uint8_t bits_per_level =
+          (result.strategy == LOXC_STRATEGY_HIERARCHICAL_8) ? 6u : 4u;
+      gen_rc = write_loxctab_from_emit(output, symbols, symbol_count,
+                                       byte_to_symbol, dict_emit, dict_count,
+                                       (uint8_t)result.strategy, base_size,
+                                       bits_per_level,
+                                       (uint16_t)hier.level_count);
+    }
 
     free(symbol_to_dict_index);
     free(dict_emit);

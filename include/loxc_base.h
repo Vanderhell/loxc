@@ -19,6 +19,8 @@ enum {
   LOXC_FLAG_DICT = 1u << 6
 };
 
+#define LOXC_FLAG_EMBEDDED_TABLE 0x04u
+
 typedef enum {
   LOXC_STRATEGY_FLAT_FIXED_WIDTH = 0,
   LOXC_STRATEGY_HIERARCHICAL_8   = 1,

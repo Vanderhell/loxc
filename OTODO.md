@@ -1,3 +1,48 @@
+## 2026-05-14 — Project status: MVP COMPLETE
+
+All requested MVP features are integrated:
+- Multi-source training via repeated `--input`
+- Generated C module output (`.h` + `.c`)
+- Portable runtime table output (`.loxctab`)
+- Runtime table loader
+- External-table `.loxc` files
+- Embedded self-contained `.loxc` files
+- Module-agnostic CLI
+- README and benchmark documentation
+
+Final sanity:
+- `make test` PASS
+
+## 2026-05-14 — Fáza 10: CLI + documentation
+
+### Status: ✅ Phase 10 COMPLETE — CLI, README, final project notes
+
+Completed:
+- `tools/loxc_cli.c`: module-agnostic `compress`, `decompress`, and `info` commands
+- `tools/loxc_cli.c`: supports `--table`, `--module`, and `--embed`
+- `README.md`: quick start, training, architecture, API, limitations, future work
+- CLI smoke test: compressed and decompressed `benchmarks/plain_english.txt`, verified with `cmp`
+
+### Final Phase Status
+
+- Fáza 7: COMPLETE for current MVP scope; streaming API remains future work
+- Fáza 8: COMPLETE — training pipeline and generated module
+- Fáza 9: COMPLETE — benchmark harness with real measurements
+- Fáza 10: COMPLETE — CLI and documentation
+
+### Future Work
+
+- Multiple runtime modules in parallel
+- Huffman strategy
+- Context-aware encoding (`P(Y|X)`)
+- Streaming API (Fáza 7 odložená)
+- Multi-module compression: choose module automatically by content
+
+### Post-MVP UX Issues
+
+- `loxc_cli info` prints `magic: LXC`; review whether UX should show canonical `LOXC` naming even though on-disk magic is currently three bytes `LXC`.
+- `loxc_cli info` prints `crc32: 0x00000000` when `LOXC_FLAG_CRC` is not set; improve output to say `crc32: unused` unless CRC flag is present.
+
 ## 2026-05-13 — Fáza 9: Benchmark harness
 
 ### Status: ✅ Phase 9 COMPLETE — benchmark harness with real measurements

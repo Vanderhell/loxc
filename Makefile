@@ -14,7 +14,8 @@ SRC_OBJS := \
 	src/loxc_dict.o \
 	src/loxc_stream.o \
 	src/loxc_strategy.o \
-	src/loxc_hier.o
+	src/loxc_hier.o \
+	src/loxc_loader.o
 
 TOOLS := \
 	tools/loxc_train \
@@ -31,6 +32,7 @@ TESTS := \
 	tests/test_strategy \
 	tests/test_hier \
 	tests/test_registry \
+	tests/test_loader \
 	tests/test_train_demo
 
 .PHONY: all test bench clean
@@ -72,6 +74,7 @@ test: $(TESTS)
 	@tests/test_strategy
 	@tests/test_hier
 	@tests/test_registry
+	@tests/test_loader
 	@tests/test_train_demo
 
 bench: tools/loxc_bench
