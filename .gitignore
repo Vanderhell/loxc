@@ -21,6 +21,13 @@
 /examples/01_basic_compress
 /examples/02_embedded_mode
 /examples/03_train_and_use
+/examples/01_hello_world
+/examples/02_compress_file
+/examples/03_embedded_mode
+/examples/04_error_handling
+/examples/05_training_pipeline
+/examples/06_compare_modes
+/examples/07_streaming_chunks
 
 .vscode/
 .idea/

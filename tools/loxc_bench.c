@@ -148,6 +148,7 @@ static void print_table_row(const char *label, size_t input_size,
 
 static int try_compress_len(const char *module, const uint8_t *input,
                             size_t input_len, size_t len) {
+  (void)input_len;
   size_t out_cap = len * 2u;
   if (out_cap < len) out_cap = len;
   out_cap += 4096u;
