@@ -32,7 +32,7 @@ typedef struct {
   uint8_t  strategy_id;   /* loxc_strategy_t: encoding strategy */
   uint16_t data_len;      /* encoded data length in bytes */
   uint16_t level_count;   /* for hierarchical strategies: number of levels (0 for FLAT) */
-  uint8_t  reserved[4];   /* for future extensions, must be 0x00 */
+  uint8_t  reserved[4];   /* module-defined extension bytes */
   uint32_t crc32;         /* valid iff (flags & LOXC_FLAG_CRC) */
 } loxc_header_t;
 

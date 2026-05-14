@@ -1,3 +1,7 @@
+/* Enable clock_gettime/CLOCK_MONOTONIC with -std=c99. */
+#define _POSIX_C_SOURCE 199309L
+#include <time.h>
+
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -6,20 +10,23 @@
 #include <string.h>
 
 #if defined(__unix__) || defined(__APPLE__)
-#include <time.h>
 #define LOXC_BENCH_HAS_CLOCK_GETTIME 1
 #endif
 
 #include "loxc.h"
+
+#if defined(LOXC_BENCH_WITH_DEMO)
+#include "loxc_demo.h"
+#endif
 
 static void usage(FILE *out) {
   fprintf(out,
           "Usage:\n"
           "  loxc_bench --module <name> [--file <path>]\n"
           "\n"
-          "Notes:\n"
-          "  - The module must be registered before benchmarking.\n"
-          "    (e.g. call your generated loxc_mod_<name>_register() somewhere.)\n");
+      "Notes:\n"
+      "  - The module must be registered before benchmarking.\n"
+      "    (e.g. call your generated loxc_mod_<name>_register() somewhere.)\n");
 }
 
 static int parse_args(int argc, char **argv, const char **out_module,
@@ -48,6 +55,20 @@ static int parse_args(int argc, char **argv, const char **out_module,
     return 1;
   }
   return 0;
+}
+
+static int register_module_for_bench(const char *module_name) {
+#if defined(LOXC_BENCH_WITH_DEMO)
+  if (strcmp(module_name, "demo") == 0) {
+    return loxc_mod_demo_register();
+  }
+#endif
+
+  fprintf(stderr,
+          "Error: module '%s' is not registered.\n"
+          "Hint: link loxc_bench with your module and call loxc_mod_%s_register().\n",
+          module_name, module_name);
+  return 1;
 }
 
 static int read_entire_file(const char *path, uint8_t **out_buf,
@@ -118,14 +139,72 @@ static void print_table_header(void) {
   printf("-------------------------------+-----------+-----------+---------+----------+----------+----\n");
 }
 
+static void print_table_row(const char *label, size_t input_size,
+                            size_t encoded_size, double ratio_percent,
+                            double enc_ms, double dec_ms, const char *ok) {
+  printf("%-30s | %9zu | %9zu | %6.1f%% | %7.2fms | %7.2fms | %s\n", label,
+         input_size, encoded_size, ratio_percent, enc_ms, dec_ms, ok);
+}
+
+static int try_compress_len(const char *module, const uint8_t *input,
+                            size_t input_len, size_t len) {
+  size_t out_cap = len * 2u;
+  if (out_cap < len) out_cap = len;
+  out_cap += 4096u;
+
+  uint8_t *encoded = (uint8_t *)malloc(out_cap);
+  if (encoded == NULL) return LOXC_ERR_OVERFLOW;
+
+  size_t encoded_actual = 0;
+  int rc = loxc_compress(module, (const char *)input, len, encoded, &out_cap,
+                         &encoded_actual);
+  free(encoded);
+  return rc;
+}
+
+static void report_first_unsupported_byte(const char *module,
+                                          const uint8_t *input,
+                                          size_t input_len) {
+  if (input_len == 0) return;
+
+  int rc0 = try_compress_len(module, input, input_len, 1);
+  if (rc0 == LOXC_ERR_SYMBOL_NOT_FOUND) {
+    fprintf(stderr, "unsupported: pos=0 byte=0x%02x\n", (unsigned)input[0]);
+    return;
+  }
+  if (rc0 != LOXC_OK) return;
+
+  size_t lo = 1;          /* known OK */
+  size_t hi = input_len;  /* known bad in caller */
+  while (hi - lo > 1) {
+    size_t mid = lo + (hi - lo) / 2u;
+    int rc = try_compress_len(module, input, input_len, mid);
+    if (rc == LOXC_ERR_SYMBOL_NOT_FOUND) {
+      hi = mid;
+    } else {
+      lo = mid;
+    }
+  }
+
+  size_t pos = hi - 1;
+  uint8_t b = input[pos];
+  if (b >= 0x20u && b <= 0x7eu) {
+    fprintf(stderr, "unsupported: pos=%zu byte=0x%02x ('%c')\n", pos,
+            (unsigned)b, (char)b);
+  } else {
+    fprintf(stderr, "unsupported: pos=%zu byte=0x%02x\n", pos, (unsigned)b);
+  }
+}
+
 static int bench_one(const char *module, const char *path) {
   uint8_t *input = NULL;
   size_t input_len = 0;
   if (read_entire_file(path, &input, &input_len) != 0) return 1;
 
-  /* Conservative capacity guess to avoid a retry path in the harness. */
-  size_t out_cap = (input_len * 2u) + 4096u;
-  if (out_cap < input_len) out_cap = input_len + 4096u;
+  /* Start with a generous buffer and grow on demand. */
+  size_t out_cap = input_len * 2u;
+  if (out_cap < input_len) out_cap = input_len;
+  out_cap += 4096u;
   uint8_t *encoded = (uint8_t *)malloc(out_cap);
   if (encoded == NULL) {
     fprintf(stderr, "Error: malloc encoded failed\n");
@@ -133,15 +212,38 @@ static int bench_one(const char *module, const char *path) {
     return 1;
   }
 
-  size_t encoded_actual = 0;
   double t0 = now_ms();
-  int rc = loxc_compress(module, (const char *)input, input_len, encoded,
-                         &out_cap, &encoded_actual);
+  size_t encoded_actual = 0;
+  int rc = LOXC_OK;
+  for (int attempt = 0; attempt < 6; attempt++) {
+    size_t cap_arg = out_cap;
+    encoded_actual = 0;
+    rc = loxc_compress(module, (const char *)input, input_len, encoded,
+                       &cap_arg, &encoded_actual);
+    if (rc != LOXC_ERR_OVERFLOW) break;
+
+    size_t next_cap = out_cap * 2u;
+    if (next_cap < out_cap) break;
+    next_cap += 4096u;
+    uint8_t *grown = (uint8_t *)realloc(encoded, next_cap);
+    if (grown == NULL) break;
+    encoded = grown;
+    out_cap = next_cap;
+  }
   double t1 = now_ms();
   const double enc_ms = t1 - t0;
 
   if (rc != LOXC_OK) {
-    fprintf(stderr, "Error: loxc_compress(%s, %s) failed rc=%d\n", module, path, rc);
+    if (rc == LOXC_ERR_SYMBOL_NOT_FOUND) {
+      printf("%-30s | %9zu | %9s | %7s | %8s | %8s | %s\n", path, input_len,
+             "-", "-", "-", "-", "UNSUPPORTED");
+      report_first_unsupported_byte(module, input, input_len);
+      free(encoded);
+      free(input);
+      return 0;
+    }
+    fprintf(stderr, "Error: loxc_compress(%s, %s) failed rc=%d\n", module, path,
+            rc);
     free(encoded);
     free(input);
     return 1;
@@ -170,8 +272,8 @@ static int bench_one(const char *module, const char *path) {
   const double ratio =
       input_len ? (100.0 * (double)encoded_actual / (double)input_len) : 0.0;
 
-  printf("%-30s | %9zu | %9zu | %6.1f%% | %7.2fms | %7.2fms | %s\n",
-         path, input_len, encoded_actual, ratio, enc_ms, dec_ms, ok ? "OK" : "FAIL");
+  print_table_row(path, input_len, encoded_actual, ratio, enc_ms, dec_ms,
+                  ok ? "OK" : "FAIL");
 
   free(decoded);
   free(encoded);
@@ -182,6 +284,7 @@ static int bench_one(const char *module, const char *path) {
 static int run_default_suite(const char *module) {
   const char *files[] = {
     "trainings/demo_corpus.txt",
+    "benchmarks/plain_english.txt",
     "benchmarks/tiny.txt",
     "benchmarks/small.txt",
     "benchmarks/medium.txt",
@@ -210,6 +313,8 @@ int main(int argc, char **argv) {
   const char *module = NULL;
   const char *file = NULL;
   if (parse_args(argc, argv, &module, &file) != 0) return 2;
+
+  if (register_module_for_bench(module) != 0) return 3;
 
   if (file != NULL) {
     print_table_header();

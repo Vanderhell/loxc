@@ -1,3 +1,12 @@
+## 2026-05-13 — Fáza 9: Benchmark harness
+
+### Status: ✅ Phase 9 COMPLETE — benchmark harness with real measurements
+
+Final benchmark results recorded in `BENCHMARKS.md`:
+- `trainings/demo_corpus.txt`: 738,046 bytes to 448,523 bytes, 60.8% ratio
+- `benchmarks/plain_english.txt`: 30,000 bytes to 18,646 bytes, 62.2% ratio
+- Decode is roughly 8-10x faster than encode on passing English-text inputs
+
 # OTODO - Fázy 7-10 (pokračovanie po roadmape)
 
 ## 2026-05-12 — Fáza 8: KROK 3 & KROK 4 — Frequency Analysis & Header Generation

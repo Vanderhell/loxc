@@ -1,0 +1,157 @@
+{
+    "name":  "loxc_bench_sample",
+    "module":  "demo",
+    "generated":  "2026-05-13",
+    "items":  [
+                  {
+                      "id":  0,
+                      "text":  "item_0",
+                      "flags":  [
+                                    "a",
+                                    "b",
+                                    "c"
+                                ],
+                      "value":  0
+                  },
+                  {
+                      "id":  1,
+                      "text":  "item_1",
+                      "flags":  [
+                                    "a",
+                                    "b",
+                                    "c"
+                                ],
+                      "value":  3
+                  },
+                  {
+                      "id":  2,
+                      "text":  "item_2",
+                      "flags":  [
+                                    "a",
+                                    "b",
+                                    "c"
+                                ],
+                      "value":  6
+                  },
+                  {
+                      "id":  3,
+                      "text":  "item_3",
+                      "flags":  [
+                                    "a",
+                                    "b",
+                                    "c"
+                                ],
+                      "value":  9
+                  },
+                  {
+                      "id":  4,
+                      "text":  "item_4",
+                      "flags":  [
+                                    "a",
+                                    "b",
+                                    "c"
+                                ],
+                      "value":  12
+                  },
+                  {
+                      "id":  5,
+                      "text":  "item_5",
+                      "flags":  [
+                                    "a",
+                                    "b",
+                                    "c"
+                                ],
+                      "value":  15
+                  },
+                  {
+                      "id":  6,
+                      "text":  "item_6",
+                      "flags":  [
+                                    "a",
+                                    "b",
+                                    "c"
+                                ],
+                      "value":  18
+                  },
+                  {
+                      "id":  7,
+                      "text":  "item_7",
+                      "flags":  [
+                                    "a",
+                                    "b",
+                                    "c"
+                                ],
+                      "value":  21
+                  },
+                  {
+                      "id":  8,
+                      "text":  "item_8",
+                      "flags":  [
+                                    "a",
+                                    "b",
+                                    "c"
+                                ],
+                      "value":  24
+                  },
+                  {
+                      "id":  9,
+                      "text":  "item_9",
+                      "flags":  [
+                                    "a",
+                                    "b",
+                                    "c"
+                                ],
+                      "value":  27
+                  },
+                  {
+                      "id":  10,
+                      "text":  "item_10",
+                      "flags":  [
+                                    "a",
+                                    "b",
+                                    "c"
+                                ],
+                      "value":  30
+                  },
+                  {
+                      "id":  11,
+                      "text":  "item_11",
+                      "flags":  [
+                                    "a",
+                                    "b",
+                                    "c"
+                                ],
+                      "value":  33
+                  },
+                  {
+                      "id":  12,
+                      "text":  "item_12",
+                      "flags":  [
+                                    "a",
+                                    "b",
+                                    "c"
+                                ],
+                      "value":  36
+                  },
+                  {
+                      "id":  13,
+                      "text":  "item_13",
+                      "flags":  [
+                                    "a",
+                                    "b",
+                                    "c"
+                                ],
+                      "value":  39
+                  },
+                  {
+                      "id":  14,
+                      "text":  "item_14",
+                      "flags":  [
+                                    "a",
+                                    "b",
+                                    "c"
+                                ],
+                      "value":  42
+                  }
+              ]
+}

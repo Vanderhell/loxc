@@ -101,7 +101,7 @@ int loxc_header_write(loxc_writer_t *w, const loxc_header_t *h) {
   if (rc != LOXC_OK) return rc;
 
   for (int i = 0; i < 4; i++) {
-    rc = loxc__write_u8(w, 0x00);
+    rc = loxc__write_u8(w, h->reserved[i]);
     if (rc != LOXC_OK) return rc;
   }
 

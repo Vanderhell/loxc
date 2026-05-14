@@ -1,0 +1,10 @@
+*.o
+*.a
+*.log
+
+/tools/loxc_train
+/tools/loxc_bench
+/tools/loxc_cli
+
+/tests/test_*
+!/tests/test_*.c

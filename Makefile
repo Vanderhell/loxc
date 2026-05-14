@@ -47,6 +47,9 @@ src/%.o: src/%.c
 tools/%: tools/%.c $(LIB)
 	$(CC) $(CFLAGS) -o $@ $< $(LIB) $(LDFLAGS)
 
+tools/loxc_bench: tools/loxc_bench.c $(LIB) modules/loxc_demo.o
+	$(CC) $(CFLAGS) -Imodules -DLOXC_BENCH_WITH_DEMO -o $@ $< modules/loxc_demo.o $(LIB) $(LDFLAGS)
+
 tests/%: tests/%.c $(LIB)
 	$(CC) $(CFLAGS) -o $@ $< $(LIB) $(LDFLAGS)
 

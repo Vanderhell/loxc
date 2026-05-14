@@ -18,7 +18,7 @@ static void test_roundtrip_no_crc(void) {
   h.strategy_id = LOXC_STRATEGY_FLAT_FIXED_WIDTH;
   h.data_len = 0x1234;
   h.level_count = 0;
-  for (int i = 0; i < 4; i++) h.reserved[i] = 0x00;
+  for (int i = 0; i < 4; i++) h.reserved[i] = (uint8_t)(0xA0u + (uint8_t)i);
   h.crc32 = 0;
 
   assert(loxc_header_write(&w, &h) == LOXC_OK);
@@ -35,6 +35,7 @@ static void test_roundtrip_no_crc(void) {
   assert(out.strategy_id == LOXC_STRATEGY_FLAT_FIXED_WIDTH);
   assert(out.data_len == h.data_len);
   assert(out.level_count == 0);
+  for (int i = 0; i < 4; i++) assert(out.reserved[i] == h.reserved[i]);
   assert(out.crc32 == 0);
   assert(loxc_reader_eof(&r) != 0);
 }
@@ -247,4 +248,3 @@ int main(void) {
   puts("test_header: PASS (all)");
   return 0;
 }
-
