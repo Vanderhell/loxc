@@ -1,16 +1,25 @@
 # loxc
 
-Frekvenčne-optimalizovaný kompresor textu s hierarchickými maticami a runtime-loadable slovníkmi.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![C99](https://img.shields.io/badge/C-99-blue.svg)](https://en.wikipedia.org/wiki/C99)
+[![CI](https://github.com/Vanderhell/loxc/actions/workflows/ci.yml/badge.svg)](https://github.com/Vanderhell/loxc/actions)
+
+Frequency-optimized text compression with hierarchical matrices and
+runtime-loadable dictionaries.
+
+## Examples
+
+See [examples/](examples/) for working code samples.
 
 ## Quick start
 
-Build:
+Build the project:
 
 ```sh
 make
 ```
 
-Trénuj vlastný modul:
+Train your own module from one or more inputs:
 
 ```sh
 ./tools/loxc_train \
@@ -19,15 +28,15 @@ Trénuj vlastný modul:
     --module-name mytable --module-id 10
 ```
 
-Vygeneruje:
+This generates:
 
 ```text
 modules/loxc_mytable.h        # C header
-modules/loxc_mytable.c        # C source pre embedded
-modules/loxc_mytable.loxctab  # binárny portable formát
+modules/loxc_mytable.c        # C source for embedded builds
+modules/loxc_mytable.loxctab  # portable binary table
 ```
 
-Komprimuj s externou tabuľkou:
+Compress with an external table:
 
 ```sh
 ./tools/loxc_cli compress \
@@ -35,7 +44,7 @@ Komprimuj s externou tabuľkou:
     input.txt output.loxc
 ```
 
-Komprimuj so vstavanou tabuľkou (self-contained):
+Compress with an embedded table:
 
 ```sh
 ./tools/loxc_cli compress \
@@ -43,19 +52,19 @@ Komprimuj so vstavanou tabuľkou (self-contained):
     input.txt output.loxc
 ```
 
-Dekomprimuj:
+Decompress:
 
 ```sh
-# Embedded súbor:
+# Embedded file
 ./tools/loxc_cli decompress output.loxc restored.txt
 
-# External súbor (musí mať tabuľku):
+# External file
 ./tools/loxc_cli decompress \
     --table modules/loxc_mytable.loxctab \
     output.loxc restored.txt
 ```
 
-Inšpekcia:
+Inspect a file:
 
 ```sh
 ./tools/loxc_cli info output.loxc
@@ -63,50 +72,56 @@ Inšpekcia:
 
 ## Architecture
 
-### Tréning
+### Training
 
-`loxc_train` analyzuje vstupné dáta, extrahuje frekvencie 1-gramov a n-gramov, aplikuje greedy filter na slovník (vyberá len entries ktoré globálne znižujú output size), a vyberie optimálnu stratégiu kódovania.
+`loxc_train` analyzes the input text, counts byte-level frequencies and word
+patterns, applies a greedy dictionary filter, and picks the cheapest encoding
+strategy for the observed data.
 
-### Stratégie
+### Strategies
 
-- `FLAT_FIXED_WIDTH`: `ceil(log2(N))` bitov na symbol, pre malé abecedy alebo rovnomerné distribúcie
-- `HIERARCHICAL_8`: 8×8 matice s ESCAPE, 6 bitov/úroveň, vhodné pre stredné abecedy so špicatou distribúciou
-- `HIERARCHICAL_4`: 4×4 matice s ESCAPE, 4 bity/úroveň, vhodné pre malé abecedy
+- `FLAT_FIXED_WIDTH`: `ceil(log2(N))` bits per symbol, suitable for small or
+  uniform alphabets
+- `HIERARCHICAL_8`: 8x8 matrices with escape chaining, 6 bits per level,
+  useful for medium alphabets with skewed distributions
+- `HIERARCHICAL_4`: 4x4 matrices with escape chaining, 4 bits per level,
+  useful for smaller alphabets
 
-Selector vyberá automaticky podľa skutočných dát.
+The selector chooses the cheapest strategy from the real measured data.
 
-### Tabuľka v `.loxctab`
+### `.loxctab`
 
-Binárny portable formát:
+Portable binary module table format:
 
 ```text
-Magic "LOXT" + version + strategy params
+Magic "LOXT" + version + strategy parameters
 byte_to_symbol[256]
 symbols[N] (type + index)
 dict_offsets + dict_data
 CRC32
 ```
 
-Možno načítať za behu cez `loxc_module_load_from_file()`.
+Tables can be loaded at runtime with `loxc_module_load_from_file()`.
 
-### `.loxc` súbor
+### `.loxc`
 
-Dva režimy:
+Two output modes:
 
-- External: header + komprimované dáta. Dekodér potrebuje rovnakú tabuľku.
-- Embedded: header + celá tabuľka + komprimované dáta. Self-contained, väčší ale prenosný.
+- External: header + compressed data. The decoder needs the matching table.
+- Embedded: header + full table + compressed data. Self-contained and portable.
 
 ## Benchmark
 
-Detaily: [BENCHMARKS.md](BENCHMARKS.md)
+Details: [BENCHMARKS.md](BENCHMARKS.md)
 
-Anglický korpus (Pride and Prejudice, 738 KB):
+English corpus (`Pride and Prejudice`, 738 KB):
 
-- External mode: 449 KB (60.8% pôvodnej veľkosti)
-- Encode: ~110 ms
-- Decode: ~13 ms (8× rýchlejší ako encode)
+- External mode: 449 KB (60.8% of the original size)
+- Encode: about 110 ms
+- Decode: about 13 ms, roughly 8x faster than encode
 
-Loxc nie je primárne optimalizovaný na kompresný pomer, ale na **rýchle dekódovanie** cez lookup tabuľky.
+`loxc` is not primarily optimized for compression ratio. The focus is fast
+decoding through direct table lookup.
 
 ## Library API
 
@@ -114,42 +129,40 @@ Loxc nie je primárne optimalizovaný na kompresný pomer, ale na **rýchle dek�
 #include "loxc.h"
 #include "loxc_tab.h"
 
-// Register modul (cez load_from_file alebo hardcoded register fn)
 loxc_module_t *m = loxc_module_load_from_file("mytable.loxctab");
 loxc_module_register(m);
 
-// Compress
 uint8_t out[N];
 size_t cap = sizeof(out), actual;
 loxc_compress("mytable", input, input_len, out, &cap, &actual);
 
-// Decompress
 char restored[M];
 size_t rcap = sizeof(restored), ractual;
 loxc_decompress(out, actual, restored, &rcap, &ractual);
 
-// Cleanup
 loxc_module_unload(m);
 ```
 
 ## Limitations
 
-- Jeden runtime-loaded modul naraz (globálny stav)
-- Modul je doménovo špecifický — trénuj na podobných dátach ako budeš komprimovať
-- Žiadne Huffman / aritmetické kódovanie — kompresný pomer je horší ako gzip ale rýchlosť dekódovania vyššia
+- Only one runtime-loaded module can be active at a time
+- The module should match the input domain
+- No Huffman or arithmetic coding yet, so compression ratio is weaker than
+  gzip, but decode speed is higher
 
 ## Future work
 
-- Viacero runtime modulov paralelne
+- Multiple runtime modules in parallel
 - Huffman strategy
-- Kontextové kódovanie `P(Y|X)`
-- Streaming API pre súbory > RAM
+- Context-aware encoding `P(Y|X)`
+- Streaming API for files larger than RAM
 
-## Build / Tests
+## Build and test
 
 ```sh
-make           # build libloxc.a + tools
-make test      # run all tests (10 test suites)
+make           # build libloxc.a and tools
+make test      # run all test suites
+make examples  # build example programs
 ```
 
 ## File structure
@@ -159,7 +172,90 @@ include/    public headers
 src/        library implementation
 tools/      loxc_train, loxc_cli, loxc_bench
 tests/      unit tests
-modules/    generated modules (auto-generated, git-ignored)
+modules/    generated modules (git-ignored)
 benchmarks/ benchmark inputs
 trainings/  training data
+examples/   runnable example programs
+docs/       implementation documentation
 ```
+
+## Related work
+
+`loxc` combines known ideas from the compression literature. It implements an
+adaptive family of `(s,c)`-Dense-Code-like layouts with automatic parameter
+selection based on the training corpus:
+
+- `HIER4`: `(15,1)` dense-code variant, 4 bits per level
+- `HIER8`: `(56,8)` dense-code variant, 6 bits per level
+- `FLAT`: fixed-width fallback, `ceil(log2(N))` bits per symbol
+
+For future versions: `HIER16` would correspond to a `(240,16)` variant with
+8 bits per level.
+
+The selector chooses the best strategy through global cost analysis on the
+actual corpus. That adaptive selection step is the main `loxc` contribution
+relative to classic dense-code literature, where `s,c` parameters are usually
+chosen manually or by one fixed heuristic.
+
+### References and comparison
+
+| Project | Architecture | Relation to `loxc` |
+|---------|--------------|--------------------|
+| **(s,c)-Dense Codes / ETDC / SCDC** | Prefix stop/continue code with fixed `b`-bit steps | Closest theoretical predecessor. `loxc` is an adaptive multi-`(s,c)` variant. |
+| **FSST** | Trained 1-byte symbol table, decode via array lookup | Closest production codec. Used in DuckDB. Differs in being byte-aligned and random-access oriented. |
+| **zstd dictionary mode** | LZ77 + Huff0/FSE with portable trained dictionary | Closest deployment model: train -> portable model -> runtime load. |
+| **Shared Brotli RFC 9841** | Brotli with shared dictionaries, container supports external and embedded modes | Closest precedent for the external/embedded switch within one format. |
+
+Links:
+
+- FSST: https://github.com/cwida/fsst
+- zstd: https://facebook.github.io/zstd/
+- Shared Brotli: https://datatracker.ietf.org/doc/rfc9841/
+
+## Honest positioning
+
+`loxc` is not a new compression principle. It is a recombination of existing
+ideas in one C99 codec:
+
+- Dense-code-like prefix structure derived from `(s,c)` codes
+- Adaptive per-corpus parameter selection
+- Learned per-corpus tables, similar in spirit to FSST and dictionary-trained codecs
+- External or embedded packaging, similar to shared-dictionary deployment models
+
+### When to consider `loxc`
+
+- Small to medium text payloads
+- Strong similarity across documents
+- Offline dictionary training is acceptable
+- Embedded or IoT environments that benefit from a simple decoder
+- Domain-specific text such as JSON APIs, log lines, URL paths, localization
+  files, or telemetry
+
+### When not to consider `loxc`
+
+- Archival compression: use `zstd` or `brotli`
+- Extremely fast string decode in databases: use `FSST`
+- Random access into compressed blocks: use `FSST`
+- One-shot compression without a training phase: use `gzip` or `zstd`
+
+### Known limits
+
+- Absolute decode throughput in MB/s has not yet been benchmarked against
+  standard baselines such as `zstd`, `LZ4`, or `FSST`. That is planned for
+  `v0.2`.
+- Compression ratio is weaker than `gzip`, `zstd`, or `brotli` because there is
+  no LZ77 backreference layer and no full entropy coder.
+- If the input drifts significantly from the training corpus, the table should
+  be retrained.
+
+## License
+
+MIT - see [LICENSE](LICENSE)
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md)
+
+## Security
+
+See [SECURITY.md](SECURITY.md)
