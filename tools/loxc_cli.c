@@ -381,7 +381,7 @@ static int command_info(int argc, char **argv) {
 
   size_t header_bytes = 15u + ((h.flags & LOXC_FLAG_CRC) ? 4u : 0u);
   printf("file: %s\n", argv[2]);
-  printf("magic: %c%c%c\n", input[0], input[1], input[2]);
+  printf("magic: LOXC\n");
   printf("module_id: %u\n", (unsigned)h.module_id);
   printf("version: %u\n", (unsigned)h.version);
   print_flags(h.flags);
@@ -392,7 +392,11 @@ static int command_info(int argc, char **argv) {
   printf("reserved: %02x %02x %02x %02x\n", (unsigned)h.reserved[0],
          (unsigned)h.reserved[1], (unsigned)h.reserved[2],
          (unsigned)h.reserved[3]);
-  printf("crc32: 0x%08x\n", (unsigned)h.crc32);
+  if ((h.flags & LOXC_FLAG_CRC) != 0) {
+    printf("crc32: 0x%08x\n", (unsigned)h.crc32);
+  } else {
+    printf("crc32: not used (CRC flag not set)\n");
+  }
   printf("header_bytes: %zu\n", header_bytes);
   printf("file_bytes: %zu\n", input_len);
   if (input_len >= header_bytes) {
