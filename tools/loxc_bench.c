@@ -284,7 +284,7 @@ static int bench_one(const char *module, const char *path) {
 static int run_default_suite(const char *module) {
   const char *files[] = {
     "trainings/demo_corpus.txt",
-    "benchmarks/plain_english.txt",
+    "benchmarks/plain_sample_text.txt",
     "benchmarks/tiny.txt",
     "benchmarks/small.txt",
     "benchmarks/medium.txt",

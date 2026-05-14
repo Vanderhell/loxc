@@ -13,7 +13,7 @@
 - External and embedded `.loxc` file modes
 - CLI tools for `compress`, `decompress`, and `info`
 - 10 test suites
-- Benchmarks with about 60% compression on English text
+- Benchmarks with about 60% compression on the bundled sample text corpus
 
 ### Known limitations
 - Only one runtime-loaded module can be active at a time

@@ -16,11 +16,26 @@ Made for embedded systems, log pipelines, and any domain-specific text.
 Input:             "The quick brown fox jumps over the lazy dog"  (43 bytes)
 Encoded:           29 bytes  (67% of original)
 Decode:            < 0.1 ms
-Compression ratio: ~60% on English text
+Compression ratio: ~60% on the bundled sample text corpus
 Decode speed:      ~8x faster than encode
 Decoder size:      ~5 KB compiled
 Dependencies:      none (pure C99)
 ```
+
+## Language agnostic
+
+`loxc` has no built-in language assumptions. The included `demo` module is
+trained on a public-domain text sample (`Pride and Prejudice`) for testing
+purposes only. For your own data:
+
+- **Slovak, Czech, Polish, and other natural language corpora**: train on your corpus
+- **JSON, XML, and log lines**: train on representative samples of your format
+- **URLs and file paths**: train on a representative set
+- **Source code**: train on files from your codebase
+
+The compression algorithm works on bytes, not characters or words. Any text-like
+data with repeated patterns can compress well when the module is trained on a
+matching corpus.
 
 ## Three lines to compress text
 
@@ -88,7 +103,8 @@ auto-selected parameters per corpus.
 
 ## Benchmarks
 
-Tested on `Pride and Prejudice` (738 KB English text), x86_64, `-O2`:
+Tested on the bundled sample text corpus (`Pride and Prejudice`, 738 KB),
+x86_64, `-O2`:
 
 | Metric | Value |
 |--------|-------|

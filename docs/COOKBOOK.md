@@ -83,11 +83,11 @@ This combines frequencies from all inputs into one table.
 ### 8. Switch between modules at runtime
 
 ```c
-loxc_ctx_t *ctx1 = loxc_open("english.loxctab");
+loxc_ctx_t *ctx1 = loxc_open("module_a.loxctab");
 /* ... use ctx1 ... */
 loxc_close(ctx1);
 
-loxc_ctx_t *ctx2 = loxc_open("json.loxctab");
+loxc_ctx_t *ctx2 = loxc_open("module_b.loxctab");
 /* ... use ctx2 ... */
 loxc_close(ctx2);
 ```
