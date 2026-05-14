@@ -22,6 +22,11 @@ TOOLS := \
 	tools/loxc_cli \
 	tools/loxc_bench
 
+EXAMPLES := \
+	examples/01_basic_compress \
+	examples/02_embedded_mode \
+	examples/03_train_and_use
+
 TESTS := \
 	tests/test_basic \
 	tests/test_matrix \
@@ -35,7 +40,7 @@ TESTS := \
 	tests/test_loader \
 	tests/test_train_demo
 
-.PHONY: all test bench clean
+.PHONY: all test bench examples clean
 
 all: $(LIB) $(TOOLS) $(TESTS)
 
@@ -53,6 +58,9 @@ tools/loxc_bench: tools/loxc_bench.c $(LIB) modules/loxc_demo.o
 	$(CC) $(CFLAGS) -Imodules -DLOXC_BENCH_WITH_DEMO -o $@ $< modules/loxc_demo.o $(LIB) $(LDFLAGS)
 
 tests/%: tests/%.c $(LIB)
+	$(CC) $(CFLAGS) -o $@ $< $(LIB) $(LDFLAGS)
+
+examples/%: examples/%.c $(LIB) modules/loxc_demo.loxctab
 	$(CC) $(CFLAGS) -o $@ $< $(LIB) $(LDFLAGS)
 
 modules/loxc_demo.c modules/loxc_demo.h: tools/loxc_train trainings/demo_corpus.txt
@@ -80,5 +88,7 @@ test: $(TESTS)
 bench: tools/loxc_bench
 	@tools/loxc_bench
 
+examples: $(EXAMPLES)
+
 clean:
-	$(RM) $(SRC_OBJS) $(LIB) $(TOOLS) $(TESTS) modules/loxc_demo.o
+	$(RM) $(SRC_OBJS) $(LIB) $(TOOLS) $(TESTS) $(EXAMPLES) modules/loxc_demo.o

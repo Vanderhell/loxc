@@ -1,1 +1,0 @@
-cc -std=c99 -Wall -Wextra -O2 -Iinclude -o tools/loxc_train tools/loxc_train.c libloxc.a 

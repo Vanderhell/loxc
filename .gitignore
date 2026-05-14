@@ -3,8 +3,35 @@
 *.log
 
 /tools/loxc_train
-/tools/loxc_bench
 /tools/loxc_cli
+/tools/loxc_bench
 
 /tests/test_*
 !/tests/test_*.c
+
+/modules/*.h
+/modules/*.c
+/modules/*.o
+/modules/*.loxctab
+
+/benchmarks/*.txt
+/benchmarks/*.json
+/trainings/*.txt
+
+/examples/01_basic_compress
+/examples/02_embedded_mode
+/examples/03_train_and_use
+
+.vscode/
+.idea/
+*.swp
+/OTODO.md
+/TODO.md
+/TODO_post_MVP.md
+/kde sme skoncili.txt
+/loxc_codex_roadmap.md
+/loxc_architektura.html
+final_*.log
+test_output*.log
+train_build.log
+demo_compile.log
