@@ -10,6 +10,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - (future features)
 
+## [0.2.0] - 2026-05-14
+
+### Added
+- Comprehensive benchmark suite comparing loxc against gzip, zstd, lz4
+- Multi-corpus benchmarks (small text, large text, repetitive logs, random)
+- Statistical benchmark reporting (min/median/max from 5 runs, MB/s throughput)
+- Hardware and software environment documentation in benchmarks
+- Language-agnostic positioning in all documentation
+- "Language agnostic" section in README emphasizing universal byte-level operation
+- CI matrix testing across gcc and clang on Ubuntu and macOS
+- Automated valgrind memory safety verification in CI
+- Automated GitHub release creation on version tags
+- Release artifacts: source tarballs in tar.gz, tar.bz2, and zip formats
+
+### Changed
+- README redesigned with hero shot, 3-line example, benchmark comparison table
+- README architecture diagram in ASCII art
+- Examples list moved into README as scannable table
+- BENCHMARKS.md regenerated from real comparative measurements
+- Documentation purged of language-specific assumptions (no more "English text")
+- Demo module repositioned as "incidental training sample" not "English module"
+
+### Fixed
+- README "Quick start" now contains actual runnable code, not just links
+- README "Examples" section now lists what each example demonstrates
+- info command displays "LOXC" magic correctly (was "LXC")
+- info command shows "not used" for CRC when flag is not set (was "0x00000000")
+
 ## [0.1.0] - 2026-05-14
 
 ### Added
