@@ -1,140 +1,250 @@
 # loxc
 
+> **Train a compression model on your text. Ship it. Compress and decompress at hardware speed.**
+
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![C99](https://img.shields.io/badge/C-99-blue.svg)](https://en.wikipedia.org/wiki/C99)
 [![CI](https://github.com/Vanderhell/loxc/actions/workflows/ci.yml/badge.svg)](https://github.com/Vanderhell/loxc/actions)
+[![Version](https://img.shields.io/badge/version-0.1.0-green.svg)](https://github.com/Vanderhell/loxc/releases/tag/v0.1.0)
 
-Frequency-optimized text compression with hierarchical matrices and
-runtime-loadable dictionaries.
+A trainable, frequency-optimized text codec in pure C99.
+Made for embedded systems, log pipelines, and any domain-specific text.
 
-## Quick start
-
-Start here:
-
-- [docs/QUICKSTART.md](docs/QUICKSTART.md) for the 5-minute setup
-- [examples/](examples/) for runnable sample programs
-- [docs/COOKBOOK.md](docs/COOKBOOK.md) for copy-paste recipes
-
-## Examples
-
-See [examples/](examples/) for working code samples.
-
-## Architecture
-
-### Training
-
-`loxc_train` analyzes the input text, counts byte-level frequencies and word
-patterns, applies a greedy dictionary filter, and picks the cheapest encoding
-strategy for the observed data.
-
-### Strategies
-
-- `FLAT_FIXED_WIDTH`: `ceil(log2(N))` bits per symbol, suitable for small or
-  uniform alphabets
-- `HIERARCHICAL_8`: 8x8 matrices with escape chaining, 6 bits per level,
-  useful for medium alphabets with skewed distributions
-- `HIERARCHICAL_4`: 4x4 matrices with escape chaining, 4 bits per level,
-  useful for smaller alphabets
-
-The selector chooses the cheapest strategy from the real measured data.
-
-### `.loxctab`
-
-Portable binary module table format:
+## At a glance
 
 ```text
-Magic "LOXT" + version + strategy parameters
-byte_to_symbol[256]
-symbols[N] (type + index)
-dict_offsets + dict_data
-CRC32
+Input:             "The quick brown fox jumps over the lazy dog"  (43 bytes)
+Encoded:           29 bytes  (67% of original)
+Decode:            < 0.1 ms
+Compression ratio: ~60% on English text
+Decode speed:      ~8x faster than encode
+Decoder size:      ~5 KB compiled
+Dependencies:      none (pure C99)
 ```
 
-Tables can be loaded at runtime with `loxc_module_load_from_file()`.
-
-### `.loxc`
-
-Two output modes:
-
-- External: header + compressed data. The decoder needs the matching table.
-- Embedded: header + full table + compressed data. Self-contained and portable.
-
-## Benchmark
-
-Details: [BENCHMARKS.md](BENCHMARKS.md)
-
-English corpus (`Pride and Prejudice`, 738 KB):
-
-- External mode: 449 KB (60.8% of the original size)
-- Encode: about 110 ms
-- Decode: about 13 ms, roughly 8x faster than encode
-
-`loxc` is not primarily optimized for compression ratio. The focus is fast
-decoding through direct table lookup.
-
-## Library API
-
-The recommended entry point is the wrapper API in `loxc_simple.h`:
+## Three lines to compress text
 
 ```c
-#include "loxc_simple.h"
-
 loxc_ctx_t *ctx = loxc_open("modules/loxc_demo.loxctab");
-
-loxc_buffer_t compressed = loxc_compress_buffer(ctx, input, input_len, 0);
-loxc_buffer_t restored =
-    loxc_decompress_buffer(ctx, compressed.data, compressed.size);
-
-loxc_buffer_free(&compressed);
-loxc_buffer_free(&restored);
+loxc_buffer_t out = loxc_compress_buffer(ctx, "Hello world!", 12, 0);
 loxc_close(ctx);
 ```
 
-For more wrapper-based recipes, see [docs/COOKBOOK.md](docs/COOKBOOK.md).
+That's it. `out.data` now holds compressed bytes.
+
+[See full examples ->](examples/) | [5-minute tutorial ->](docs/QUICKSTART.md)
+
+## Why loxc?
+
+### Built for
+
+- **Domain-specific text**: JSON APIs, log lines, URL paths, localization files
+- **Embedded systems**: small decoder, no heavyweight runtime dependencies
+- **Repeated payloads**: train once on your corpus, compress millions of similar messages
+- **Predictable latency**: decode is table-driven, not entropy-decoder heavy
+
+### Not for
+
+- Archival compression, where `zstd` or `brotli` will give better ratios
+- Random-access string storage in databases, where `FSST` is a better fit
+- One-shot compression of unknown text, where `gzip` or `zstd` is simpler
+
+## How it works
+
+```text
+TRAINING (offline, once per corpus)
+
+your_corpus.txt  -->  loxc_train  -->  mytable.loxctab
+    |
+    +-- Counts byte frequencies
+    +-- Extracts repeated phrases ("the", "and", "that", ...)
+    +-- Greedy filter keeps only entries that reduce total output size
+    `-- Picks best strategy:
+        FLAT   (fixed-width)
+        HIER4  (4x4 matrix with escapes)
+        HIER8  (8x8 matrix with escapes)
+
+RUNTIME (online, many times)
+
+input text  -->  [encode via lookup tables]  -->  .loxc file
+.loxc file  -->  [decode via lookup tables]  -->  output text
+```
+
+### The hierarchical matrix idea
+
+Top-frequency symbols live in a 6-bit grid in `HIER8`:
+
+```text
+Position 0-55:  direct symbol (6 bits)
+Position 56-63: ESCAPE -> read 6 more bits for the next grid
+
+Frequent symbols:  [space] [e] [t] [o]   -> 6 bits each
+Less frequent:     [q] [z] [x]           -> 12 bits each
+Rare:                                      18 bits each
+```
+
+This is mathematically close to an adaptive **(56,8)-Dense Code** with
+auto-selected parameters per corpus.
+
+## Benchmarks
+
+Tested on `Pride and Prejudice` (738 KB English text), x86_64, `-O2`:
+
+| Metric | Value |
+|--------|-------|
+| Compressed size | 449 KB |
+| Compression ratio | 60.8% |
+| Encode time | 110 ms |
+| Decode time | 13 ms |
+| Decode throughput | ~56 MB/s |
+
+**Honest comparison** with established codecs. These are public headline numbers,
+not same-hardware apples-to-apples measurements:
+
+| Codec | Ratio | Decode speed |
+|-------|-------|--------------|
+| zstd -1 | ~36% | ~390 MB/s |
+| LZ4 | ~48% | ~3.8 GB/s |
+| FSST | ~50% | ~1-3 GB/s |
+| **loxc** | **~60%** | **~56 MB/s*** |
+
+> `*` Standardized absolute throughput benchmarking is planned for `v0.2`.
+
+[Full benchmark details ->](BENCHMARKS.md)
+
+## Quick start
+
+### Build
+
+```bash
+git clone https://github.com/Vanderhell/loxc
+cd loxc && make
+```
+
+### Use the CLI
+
+```bash
+./tools/loxc_cli compress \
+    --table modules/loxc_demo.loxctab --embed \
+    your_file.txt your_file.loxc
+
+./tools/loxc_cli decompress your_file.loxc restored.txt
+```
+
+### Use as a library
+
+```c
+#include "loxc_simple.h"
+#include <stdio.h>
+#include <string.h>
+
+int main(void) {
+    loxc_ctx_t *ctx = loxc_open("modules/loxc_demo.loxctab");
+    const char *text = "compress me";
+    loxc_buffer_t out = loxc_compress_buffer(ctx, text, strlen(text), 0);
+
+    printf("Original: %zu bytes, Compressed: %zu bytes\n",
+           strlen(text), out.size);
+
+    loxc_buffer_free(&out);
+    loxc_close(ctx);
+    return 0;
+}
+```
+
+```bash
+cc -Iinclude -Imodules myapp.c libloxc.a -o myapp && ./myapp
+```
+
+### Train on your own data
+
+```bash
+./tools/loxc_train \
+    --input your_data.txt \
+    --output modules/loxc_mytable \
+    --module-name mytable --module-id 50
+```
+
+[Full tutorial ->](docs/QUICKSTART.md) | [Cookbook ->](docs/COOKBOOK.md)
+
+## Examples
+
+Working code in [examples/](examples/):
+
+| # | File | Shows |
+|---|------|-------|
+| 1 | `01_hello_world.c` | Smallest possible usage |
+| 2 | `02_compress_file.c` | File operations with timing |
+| 3 | `03_embedded_mode.c` | Self-contained `.loxc` files |
+| 4 | `04_error_handling.c` | Error handling paths |
+| 5 | `05_training_pipeline.c` | Train and use a custom module |
+| 6 | `06_compare_modes.c` | External vs embedded size tradeoff |
+| 7 | `07_streaming_chunks.c` | Current large-file workaround |
+
+Run them with `make examples && ./examples/01_hello_world`.
+
+## API
+
+### Simple API (recommended)
+
+```c
+loxc_ctx_t *loxc_open(const char *table_path);
+void        loxc_close(loxc_ctx_t *ctx);
+
+int loxc_compress_file(loxc_ctx_t *ctx, const char *in_path,
+                       const char *out_path, int embed_table);
+int loxc_decompress_file(loxc_ctx_t *ctx, const char *in_path,
+                         const char *out_path);
+
+loxc_buffer_t loxc_compress_buffer(loxc_ctx_t *ctx,
+                                   const void *data, size_t len,
+                                   int embed_table);
+loxc_buffer_t loxc_decompress_buffer(loxc_ctx_t *ctx,
+                                     const void *data, size_t len);
+void          loxc_buffer_free(loxc_buffer_t *buf);
+
+const char   *loxc_strerror(int code);
+```
+
+[Full API reference ->](docs/API.md)
 
 ### Advanced API
 
-The low-level API is still available for direct module and buffer control:
+For direct registry and buffer control, see [docs/API.md#advanced-api](docs/API.md#advanced-api).
 
-```c
-#include "loxc.h"
-#include "loxc_tab.h"
+## Architecture
 
-loxc_module_t *m = loxc_module_load_from_file("mytable.loxctab");
-loxc_module_register(m);
-
-uint8_t out[N];
-size_t cap = sizeof(out), actual;
-loxc_compress("mytable", input, input_len, out, &cap, &actual);
-
-char restored[M];
-size_t rcap = sizeof(restored), ractual;
-loxc_decompress(out, actual, restored, &rcap, &ractual);
-
-loxc_module_unload(m);
+```text
++-----------------------------------------------------------+
+| Application                                               |
+|  +-----------------------------------------------+        |
+|  | loxc_simple.h  (recommended)                  |        |
+|  | loxc.h         (low-level)                    |        |
+|  +-----------------------------------------------+        |
++--------------------------+--------------------------------+
+                           |
+                           v
++-----------------------------------------------------------+
+| libloxc.a                                                 |
+|  +--------------+  +---------------+  +----------------+ |
+|  | Strategy     |  | Hierarchical  |  | Stream Reader/ | |
+|  | Selector     |  | Encoder/      |  | Writer         | |
+|  |              |  | Decoder       |  |                | |
+|  +--------------+  +---------------+  +----------------+ |
+|  +--------------+  +---------------+                     |
+|  | Dictionary   |  | Module        |                     |
+|  | Filter       |  | Registry      |                     |
+|  +--------------+  +---------------+                     |
++--------------------------+--------------------------------+
+                           |
+                           v
++-----------------------------------------------------------+
+| Module tables (.loxctab files)                            |
+| Hardcoded C modules or runtime-loaded portable tables     |
++-----------------------------------------------------------+
 ```
 
-## Limitations
-
-- Only one runtime-loaded module can be active at a time
-- The module should match the input domain
-- No Huffman or arithmetic coding yet, so compression ratio is weaker than
-  gzip, but decode speed is higher
-
-## Future work
-
-- Multiple runtime modules in parallel
-- Huffman strategy
-- Context-aware encoding `P(Y|X)`
-- Streaming API for files larger than RAM
-
-## Build and test
-
-```sh
-make           # build libloxc.a and tools
-make test      # run all test suites
-make examples  # build example programs
-```
+[Full architecture ->](docs/ARCHITECTURE.md)
 
 ## File structure
 
@@ -150,74 +260,24 @@ examples/   runnable example programs
 docs/       implementation documentation
 ```
 
+## Roadmap
+
+- `v0.1.0` - Initial release
+- `v0.2.0` - Absolute MB/s benchmarks, Huffman strategy
+- `v0.3.0` - Multi-module support, streaming API
+- `v1.0.0` - Production-stable release
+
 ## Related work
 
-`loxc` combines known ideas from the compression literature. It implements an
-adaptive family of `(s,c)`-Dense-Code-like layouts with automatic parameter
-selection based on the training corpus:
+[Detailed comparison with Dense Codes, FSST, zstd dictionary mode, and Shared Brotli ->](docs/RELATED_WORK.md)
 
-- `HIER4`: `(15,1)` dense-code variant, 4 bits per level
-- `HIER8`: `(56,8)` dense-code variant, 6 bits per level
-- `FLAT`: fixed-width fallback, `ceil(log2(N))` bits per symbol
+Briefly, `loxc` is **not a new compression principle**. It is a practical
+recombination of:
 
-For future versions: `HIER16` would correspond to a `(240,16)` variant with
-8 bits per level.
-
-The selector chooses the best strategy through global cost analysis on the
-actual corpus. That adaptive selection step is the main `loxc` contribution
-relative to classic dense-code literature, where `s,c` parameters are usually
-chosen manually or by one fixed heuristic.
-
-### References and comparison
-
-| Project | Architecture | Relation to `loxc` |
-|---------|--------------|--------------------|
-| **(s,c)-Dense Codes / ETDC / SCDC** | Prefix stop/continue code with fixed `b`-bit steps | Closest theoretical predecessor. `loxc` is an adaptive multi-`(s,c)` variant. |
-| **FSST** | Trained 1-byte symbol table, decode via array lookup | Closest production codec. Used in DuckDB. Differs in being byte-aligned and random-access oriented. |
-| **zstd dictionary mode** | LZ77 + Huff0/FSE with portable trained dictionary | Closest deployment model: train -> portable model -> runtime load. |
-| **Shared Brotli RFC 9841** | Brotli with shared dictionaries, container supports external and embedded modes | Closest precedent for the external/embedded switch within one format. |
-
-Links:
-
-- FSST: https://github.com/cwida/fsst
-- zstd: https://facebook.github.io/zstd/
-- Shared Brotli: https://datatracker.ietf.org/doc/rfc9841/
-
-## Honest positioning
-
-`loxc` is not a new compression principle. It is a recombination of existing
-ideas in one C99 codec:
-
-- Dense-code-like prefix structure derived from `(s,c)` codes
-- Adaptive per-corpus parameter selection
-- Learned per-corpus tables, similar in spirit to FSST and dictionary-trained codecs
-- External or embedded packaging, similar to shared-dictionary deployment models
-
-### When to consider `loxc`
-
-- Small to medium text payloads
-- Strong similarity across documents
-- Offline dictionary training is acceptable
-- Embedded or IoT environments that benefit from a simple decoder
-- Domain-specific text such as JSON APIs, log lines, URL paths, localization
-  files, or telemetry
-
-### When not to consider `loxc`
-
-- Archival compression: use `zstd` or `brotli`
-- Extremely fast string decode in databases: use `FSST`
-- Random access into compressed blocks: use `FSST`
-- One-shot compression without a training phase: use `gzip` or `zstd`
-
-### Known limits
-
-- Absolute decode throughput in MB/s has not yet been benchmarked against
-  standard baselines such as `zstd`, `LZ4`, or `FSST`. That is planned for
-  `v0.2`.
-- Compression ratio is weaker than `gzip`, `zstd`, or `brotli` because there is
-  no LZ77 backreference layer and no full entropy coder.
-- If the input drifts significantly from the training corpus, the table should
-  be retrained.
+- Dense-code-like prefix structure
+- Learned per-corpus symbol tables
+- Trained dictionary deployment
+- External or embedded packaging
 
 ## License
 
@@ -225,8 +285,6 @@ MIT - see [LICENSE](LICENSE)
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md)
+PRs welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Security
-
-See [SECURITY.md](SECURITY.md)
+Questions or bug reports: [open an issue](https://github.com/Vanderhell/loxc/issues).
