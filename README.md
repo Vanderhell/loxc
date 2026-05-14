@@ -124,7 +124,9 @@ not same-hardware apples-to-apples measurements:
 | FSST | ~50% | ~1-3 GB/s |
 | **loxc** | **~60%** | **~56 MB/s*** |
 
-> `*` Standardized absolute throughput benchmarking is planned for `v0.2`.
+> `*` The project now includes real benchmark results, but fully standardized
+> apples-to-apples throughput comparisons against baseline codecs on identical
+> hardware remain future work.
 
 [Full benchmark details ->](BENCHMARKS.md)
 
