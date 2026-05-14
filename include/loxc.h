@@ -21,6 +21,7 @@ typedef struct loxc_module {
 
 /* Modul sa zaregistruje pri svojom startup (constructor alebo explicitne). */
 int loxc_module_register(const loxc_module_t *module);
+int loxc_module_unregister(const char *module_name);
 
 /* Univerzálne compress/decompress. */
 int loxc_compress(const char *module_name, const char *input, size_t input_len,

@@ -7,68 +7,17 @@
 Frequency-optimized text compression with hierarchical matrices and
 runtime-loadable dictionaries.
 
+## Quick start
+
+Start here:
+
+- [docs/QUICKSTART.md](docs/QUICKSTART.md) for the 5-minute setup
+- [examples/](examples/) for runnable sample programs
+- [docs/COOKBOOK.md](docs/COOKBOOK.md) for copy-paste recipes
+
 ## Examples
 
 See [examples/](examples/) for working code samples.
-
-## Quick start
-
-Build the project:
-
-```sh
-make
-```
-
-Train your own module from one or more inputs:
-
-```sh
-./tools/loxc_train \
-    --input mydata.txt --input more.txt \
-    --output modules/loxc_mytable \
-    --module-name mytable --module-id 10
-```
-
-This generates:
-
-```text
-modules/loxc_mytable.h        # C header
-modules/loxc_mytable.c        # C source for embedded builds
-modules/loxc_mytable.loxctab  # portable binary table
-```
-
-Compress with an external table:
-
-```sh
-./tools/loxc_cli compress \
-    --table modules/loxc_mytable.loxctab \
-    input.txt output.loxc
-```
-
-Compress with an embedded table:
-
-```sh
-./tools/loxc_cli compress \
-    --table modules/loxc_mytable.loxctab --embed \
-    input.txt output.loxc
-```
-
-Decompress:
-
-```sh
-# Embedded file
-./tools/loxc_cli decompress output.loxc restored.txt
-
-# External file
-./tools/loxc_cli decompress \
-    --table modules/loxc_mytable.loxctab \
-    output.loxc restored.txt
-```
-
-Inspect a file:
-
-```sh
-./tools/loxc_cli info output.loxc
-```
 
 ## Architecture
 
@@ -124,6 +73,28 @@ English corpus (`Pride and Prejudice`, 738 KB):
 decoding through direct table lookup.
 
 ## Library API
+
+The recommended entry point is the wrapper API in `loxc_simple.h`:
+
+```c
+#include "loxc_simple.h"
+
+loxc_ctx_t *ctx = loxc_open("modules/loxc_demo.loxctab");
+
+loxc_buffer_t compressed = loxc_compress_buffer(ctx, input, input_len, 0);
+loxc_buffer_t restored =
+    loxc_decompress_buffer(ctx, compressed.data, compressed.size);
+
+loxc_buffer_free(&compressed);
+loxc_buffer_free(&restored);
+loxc_close(ctx);
+```
+
+For more wrapper-based recipes, see [docs/COOKBOOK.md](docs/COOKBOOK.md).
+
+### Advanced API
+
+The low-level API is still available for direct module and buffer control:
 
 ```c
 #include "loxc.h"

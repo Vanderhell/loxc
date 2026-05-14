@@ -51,6 +51,27 @@ int loxc_module_register(const loxc_module_t *module) {
   return LOXC_OK;
 }
 
+int loxc_module_unregister(const char *module_name) {
+  size_t i = 0;
+
+  if (module_name == NULL) return LOXC_ERR_NULL;
+
+  for (i = 0; i < g_registry_count; i++) {
+    const loxc_module_t *m = g_registry[i];
+    if (m == NULL || m->name == NULL) continue;
+    if (strcmp(m->name, module_name) != 0) continue;
+
+    for (; i + 1u < g_registry_count; i++) {
+      g_registry[i] = g_registry[i + 1u];
+    }
+    g_registry[g_registry_count - 1u] = NULL;
+    g_registry_count--;
+    return LOXC_OK;
+  }
+
+  return LOXC_ERR_MODULE_NOT_FOUND;
+}
+
 int loxc_compress(const char *module_name, const char *input, size_t input_len,
                   uint8_t *output, size_t *output_capacity,
                   size_t *output_actual) {

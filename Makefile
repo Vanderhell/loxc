@@ -15,7 +15,8 @@ SRC_OBJS := \
 	src/loxc_stream.o \
 	src/loxc_strategy.o \
 	src/loxc_hier.o \
-	src/loxc_loader.o
+	src/loxc_loader.o \
+	src/loxc_simple.o
 
 TOOLS := \
 	tools/loxc_train \
@@ -23,9 +24,13 @@ TOOLS := \
 	tools/loxc_bench
 
 EXAMPLES := \
-	examples/01_basic_compress \
-	examples/02_embedded_mode \
-	examples/03_train_and_use
+	examples/01_hello_world \
+	examples/02_compress_file \
+	examples/03_embedded_mode \
+	examples/04_error_handling \
+	examples/05_training_pipeline \
+	examples/06_compare_modes \
+	examples/07_streaming_chunks
 
 TESTS := \
 	tests/test_basic \
@@ -37,6 +42,7 @@ TESTS := \
 	tests/test_strategy \
 	tests/test_hier \
 	tests/test_registry \
+	tests/test_simple \
 	tests/test_loader \
 	tests/test_train_demo
 
@@ -61,9 +67,9 @@ tests/%: tests/%.c $(LIB)
 	$(CC) $(CFLAGS) -o $@ $< $(LIB) $(LDFLAGS)
 
 examples/%: examples/%.c $(LIB) modules/loxc_demo.loxctab
-	$(CC) $(CFLAGS) -o $@ $< $(LIB) $(LDFLAGS)
+	$(CC) $(CFLAGS) -Iinclude -Imodules -o $@ $< $(LIB) $(LDFLAGS)
 
-modules/loxc_demo.c modules/loxc_demo.h: tools/loxc_train trainings/demo_corpus.txt
+modules/loxc_demo.c modules/loxc_demo.h modules/loxc_demo.loxctab: tools/loxc_train trainings/demo_corpus.txt
 	./tools/loxc_train --input trainings/demo_corpus.txt --output modules/loxc_demo --module-name demo --module-id 10
 
 modules/loxc_demo.o: modules/loxc_demo.c src/loxc_stream.o src/loxc_base.o
@@ -82,6 +88,7 @@ test: $(TESTS)
 	@tests/test_strategy
 	@tests/test_hier
 	@tests/test_registry
+	@tests/test_simple
 	@tests/test_loader
 	@tests/test_train_demo
 
