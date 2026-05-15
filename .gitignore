@@ -34,8 +34,12 @@
 /examples/06_compare_modes
 /examples/07_streaming_chunks
 
+# Local AI assistant settings
+.claude/
+
 .vscode/
 .idea/
+
 *.swp
 /OTODO.md
 /TODO.md
