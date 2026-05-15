@@ -67,7 +67,7 @@ def make_logs(n):
         )
     return "\n".join(out) + "\n"
 
-logs_full = make_logs(8000)
+logs_full = make_logs(30000)
 cut = int(len(logs_full) * 0.85)
 with open("trainings/extra/logs_corpus.txt","w") as f: f.write(logs_full[:cut])
 with open("benchmarks/corpora/logs_test.txt","w") as f: f.write(logs_full[cut:])

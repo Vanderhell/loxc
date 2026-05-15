@@ -1,0 +1,36 @@
+name: Benchmarks
+
+on:
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  bench:
+    name: Bench (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install benchmark dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential gzip zstd xz-utils lz4 brotli bzip2
+
+      - name: Run benchmark suite
+        run: make bench-full ITER=25
+
+      - name: Upload benchmark CSV
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-merged-csv
+          path: bench_out/merged.csv
+
+      - name: Upload benchmark reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-reports
+          path: |
+            bench_out/BENCHMARKS_FULL.md
+            bench_out/DOMAIN_WINS.md

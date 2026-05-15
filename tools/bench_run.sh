@@ -29,14 +29,19 @@ cc -std=c99 -Wall -Wextra -O2 -Iinclude -o tools/loxc_bench2 tools/loxc_bench2.c
 
 echo "== STEP 2: ensure corpora =="
 # plain_sample_text.txt slice referenced by the old BENCHMARKS.md
-if [[ ! -s benchmarks/plain_sample_text.txt ]]; then
+if [[ ! -s benchmarks/plain_sample_text.txt ]] || [[ trainings/demo_corpus.txt -nt benchmarks/plain_sample_text.txt ]]; then
   head -c 30000 trainings/demo_corpus.txt > benchmarks/plain_sample_text.txt
 fi
-# Generate extra corpora if any of them is missing.
+# Regenerate corpora if required outputs are missing or the generator changed.
 if [[ ! -s trainings/extra/json_corpus.txt ]] || \
    [[ ! -s trainings/extra/logs_corpus.txt ]] || \
    [[ ! -s trainings/extra/csrc_corpus.txt ]] || \
-   [[ ! -s benchmarks/corpora/text_65536.txt ]]; then
+   [[ ! -s benchmarks/corpora/text_65536.txt ]] || \
+   [[ tools/bench_make_corpora.py -nt trainings/extra/json_corpus.txt ]] || \
+   [[ tools/bench_make_corpora.py -nt trainings/extra/logs_corpus.txt ]] || \
+   [[ tools/bench_make_corpora.py -nt trainings/extra/csrc_corpus.txt ]] || \
+   [[ tools/bench_make_corpora.py -nt benchmarks/corpora/text_65536.txt ]] || \
+   [[ tools/bench_make_corpora.py -nt benchmarks/corpora/logs_test.txt ]]; then
   python3 tools/bench_make_corpora.py
 fi
 
