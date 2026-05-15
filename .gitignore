@@ -5,6 +5,7 @@
 /tools/loxc_train
 /tools/loxc_cli
 /tools/loxc_bench
+/tools/loxc_bench2
 
 /tests/test_*
 !/tests/test_*.c
@@ -16,7 +17,11 @@
 
 /benchmarks/*.txt
 /benchmarks/*.json
+/benchmarks/suite.list
 /trainings/*.txt
+/benchmarks/corpora/
+/trainings/extra/
+/bench_out/
 
 /examples/01_basic_compress
 /examples/02_embedded_mode

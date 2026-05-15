@@ -103,30 +103,42 @@ auto-selected parameters per corpus.
 
 ## Benchmarks
 
-Tested on the bundled sample text corpus (`Pride and Prejudice`, 738 KB),
-x86_64, `-O2`:
+Measured with `make bench-full` on the current benchmark suite:
 
-| Metric | Value |
-|--------|-------|
-| Compressed size | 449 KB |
-| Compression ratio | 60.8% |
-| Encode time | 110 ms |
-| Decode time | 13 ms |
-| Decode throughput | ~56 MB/s |
+- CPU: `Intel(R) Xeon(R) CPU E5-2690 v4 @ 2.60GHz`
+- OS: `Linux 6.6.87.2-microsoft-standard-WSL2`
+- Compiler: `cc 13.3.0`
+- Iterations: `100` after warmup
 
-**Honest comparison** with established codecs. These are public headline numbers,
-not same-hardware apples-to-apples measurements:
+### Bundled sample-text module
 
-| Codec | Ratio | Decode speed |
-|-------|-------|--------------|
-| zstd -1 | ~36% | ~390 MB/s |
-| LZ4 | ~48% | ~3.8 GB/s |
-| FSST | ~50% | ~1-3 GB/s |
-| **loxc** | **~60%** | **~56 MB/s*** |
+| File | Mode | Ratio | Encode | Decode |
+|------|------|-------|--------|--------|
+| `trainings/demo_corpus.txt` (720.7 KiB) | `loxc-ext(demo)` | `60.8%` | `114.55 ms` / `6.1 MB/s` | `13.72 ms` / `51.3 MB/s` |
+| `benchmarks/plain_sample_text.txt` (29.3 KiB) | `loxc-ext(demo)` | `62.2%` | `4.80 ms` / `6.0 MB/s` | `0.55 ms` / `51.8 MB/s` |
 
-> `*` The project now includes real benchmark results, but fully standardized
-> apples-to-apples throughput comparisons against baseline codecs on identical
-> hardware remain future work.
+### Domain-tuned modules
+
+| Domain | Table size | Held-out file | Ratio | Decode throughput |
+|--------|------------|---------------|-------|-------------------|
+| sample-text | `1985 B` | `benchmarks/plain_sample_text.txt` | `62.2%` | `51.8 MB/s` |
+| json | `1497 B` | `benchmarks/corpora/json_test.json` | `62.9%` | `77.7 MB/s` |
+| csrc | `1447 B` | `benchmarks/corpora/csrc_test.c` | `45.1%` | `83.6 MB/s` |
+
+### Same-run baseline context
+
+| File | Tool | Ratio | Decode throughput |
+|------|------|-------|-------------------|
+| `trainings/demo_corpus.txt` | `gzip:6` | `36.0%` | `73.1 MB/s` |
+| `trainings/demo_corpus.txt` | `xz:6` | `29.3%` | `40.4 MB/s` |
+| `trainings/demo_corpus.txt` | `loxc-ext(demo)` | `60.8%` | `51.3 MB/s` |
+| `benchmarks/corpora/text_524288.txt` | `gzip:6` | `36.0%` | `62.4 MB/s` |
+| `benchmarks/corpora/text_524288.txt` | `loxc-ext(demo)` | `60.7%` | `52.3 MB/s` |
+
+These numbers are measured on the same machine and reflect the current
+implementation. Baseline tools are invoked through their CLI, so small-file
+latency is dominated by process launch overhead; the larger corpus rows are the
+meaningful throughput comparison points.
 
 [Full benchmark details ->](BENCHMARKS.md)
 

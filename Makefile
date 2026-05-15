@@ -95,7 +95,39 @@ test: $(TESTS)
 bench: tools/loxc_bench
 	@tools/loxc_bench
 
+tools/loxc_bench2: tools/loxc_bench2.c $(LIB)
+	$(CC) $(CFLAGS) -o $@ $< $(LIB) $(LDFLAGS) -lm
+
+.PHONY: bench2 bench-full bench-clean
+
+bench2: tools/loxc_bench2 modules/loxc_demo.loxctab
+	@mkdir -p bench_out
+	@if [ ! -s benchmarks/suite.list ]; then \
+	  printf '%s\n' \
+	    'trainings/demo_corpus.txt' \
+	    'benchmarks/plain_sample_text.txt' \
+	    'benchmarks/tiny.txt' 'benchmarks/small.txt' \
+	    'benchmarks/medium.txt' 'benchmarks/source.c' \
+	    'benchmarks/data.json' \
+	    > benchmarks/suite.list; \
+	fi
+	./tools/loxc_bench2 \
+	  --table modules/loxc_demo.loxctab \
+	  --suite benchmarks/suite.list \
+	  --iterations $(ITER) --warmup 3 \
+	  --csv  bench_out/loxc_demo.csv \
+	  --json bench_out/loxc_demo.json
+
+bench-full: tools/loxc_bench2 tools/loxc_train
+	./tools/bench_run.sh $(ITER)
+
+bench-clean:
+	rm -rf bench_out
+	rm -f benchmarks/suite.list benchmarks/plain_sample_text.txt
+	rm -rf benchmarks/corpora trainings/extra
+	rm -f modules/loxc_json.* modules/loxc_logs.* modules/loxc_csrc.*
+
 examples: $(EXAMPLES)
 
 clean:
-	$(RM) $(SRC_OBJS) $(LIB) $(TOOLS) $(TESTS) $(EXAMPLES) modules/loxc_demo.o
+	$(RM) $(SRC_OBJS) $(LIB) $(TOOLS) $(TESTS) $(EXAMPLES) modules/loxc_demo.o tools/loxc_bench2
