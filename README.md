@@ -138,7 +138,10 @@ Measured with `make bench-full` on the current benchmark suite:
 These numbers are measured on the same machine and reflect the current
 implementation. Baseline tools are invoked through their CLI, so small-file
 latency is dominated by process launch overhead; the larger corpus rows are the
-meaningful throughput comparison points.
+meaningful throughput comparison points. On the larger text slices, `loxc`
+decode throughput stays roughly flat with input size, while LZ-based codecs
+like `gzip` trend downward as their state-management overhead becomes more
+visible.
 
 [Full benchmark details ->](BENCHMARKS.md)
 
