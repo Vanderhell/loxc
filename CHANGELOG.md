@@ -10,6 +10,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - (future features)
 
+## [0.2.4] - 2026-05-14
+
+### Fixed
+- README: correct benchmark future-work note
+
+## [0.2.3] - 2026-05-14
+
+### Changed
+- CI: split tag releases into dedicated workflow
+
+## [0.2.2] - 2026-05-14
+
+### Changed
+- CI: allow tagged releases even when valgrind is non-blocking
+
+## [0.2.1] - 2026-05-14
+
+### Fixed
+- Build: stop tracking platform-specific build artifacts
+
 ## [0.2.0] - 2026-05-14
 
 ### Added

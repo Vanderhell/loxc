@@ -92,7 +92,7 @@ loxc_ctx_t *ctx2 = loxc_open("module_b.loxctab");
 loxc_close(ctx2);
 ```
 
-Note: only one runtime module is active at a time in `v0.1.x`.
+Note: only one runtime module is active at a time in `v0.2.x`.
 
 ### 9. Get human-readable error messages
 

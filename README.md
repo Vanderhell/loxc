@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![C99](https://img.shields.io/badge/C-99-blue.svg)](https://en.wikipedia.org/wiki/C99)
 [![CI](https://github.com/Vanderhell/loxc/actions/workflows/ci.yml/badge.svg)](https://github.com/Vanderhell/loxc/actions)
-[![Version](https://img.shields.io/badge/version-0.1.0-green.svg)](https://github.com/Vanderhell/loxc/releases/tag/v0.1.0)
+[![Version](https://img.shields.io/badge/version-0.2.4-green.svg)](https://github.com/Vanderhell/loxc/releases/tag/v0.2.4)
 
 A trainable, frequency-optimized text codec in pure C99.
 Made for embedded systems, log pipelines, and any domain-specific text.
@@ -296,7 +296,9 @@ docs/       implementation documentation
 ## Roadmap
 
 - `v0.1.0` - Initial release
-- `v0.2.0` - Absolute MB/s benchmarks, Huffman strategy
+- `v0.2.0` - Benchmark suite + documentation overhaul
+- `v0.2.4` - Release workflow + documentation fixes
+- `v0.2.x` - Huffman strategy (planned)
 - `v0.3.0` - Multi-module support, streaming API
 - `v1.0.0` - Production-stable release
 
