@@ -19,7 +19,15 @@ typedef struct loxc_module {
   void *private_data;
 } loxc_module_t;
 
-/* Modul sa zaregistruje pri svojom startup (constructor alebo explicitne). */
+/*
+ * Legacy process-global registry contract:
+ * - zero-initialized, no explicit init/shutdown API
+ * - maximum of 32 registered modules
+ * - stores borrowed module/name pointers owned by the caller
+ * - not verified as thread-safe; callers must externally synchronize registry
+ *   mutation and module lifetime if multiple threads are involved
+ * - unregister is rejected while a module operation on that entry is active
+ */
 int loxc_module_register(const loxc_module_t *module);
 int loxc_module_unregister(const char *module_name);
 

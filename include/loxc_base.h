@@ -15,8 +15,20 @@
 const uint8_t *loxc_magic_bytes(void);
 
 enum {
-  LOXC_FLAG_CRC = 1u << 7,
-  LOXC_FLAG_DICT = 1u << 6
+  LOXC_MAGIC_PREFIX_SIZE = 3u,
+  LOXC_HEADER_VERSION_V2 = 2u,
+  LOXC_HEADER_PAYLOAD_LEN_LEGACY_TO_EOF = 0xFFFFu,
+  LOXC_HEADER_MAX_EXACT_PAYLOAD_LEN = 0xFFFEu,
+  LOXC_HEADER_OFFSET_MODULE_ID = 3u,
+  LOXC_HEADER_OFFSET_VERSION = 4u,
+  LOXC_HEADER_OFFSET_FLAGS = 5u,
+  LOXC_HEADER_OFFSET_STRATEGY_ID = 6u,
+  LOXC_HEADER_OFFSET_PAYLOAD_LEN = 7u,
+  LOXC_HEADER_OFFSET_LEVEL_COUNT = 9u,
+  LOXC_HEADER_OFFSET_UNCOMPRESSED_LEN = 11u,
+  LOXC_HEADER_SIZE_V2 = 15u,
+  LOXC_FLAG_CRC = 1u << 7,   /* legacy/unsupported in v2: rejected */
+  LOXC_FLAG_DICT = 1u << 6   /* legacy/unsupported in v2: rejected */
 };
 
 #define LOXC_FLAG_EMBEDDED_TABLE 0x04u
@@ -29,18 +41,23 @@ typedef enum {
 
 typedef struct {
   uint8_t  module_id;
-  uint8_t  version;       /* = 2 (v2 format) */
+  uint8_t  version;           /* supported on-wire version: 2 */
   uint8_t  flags;
-  uint8_t  strategy_id;   /* loxc_strategy_t: encoding strategy */
-  uint16_t data_len;      /* encoded data length in bytes */
-  uint16_t level_count;   /* for hierarchical strategies: number of levels (0 for FLAT) */
-  uint8_t  reserved[4];   /* module-defined extension bytes */
-  uint32_t crc32;         /* valid iff (flags & LOXC_FLAG_CRC) */
+  uint8_t  strategy_id;       /* loxc_strategy_t */
+  uint16_t payload_len;       /* exact payload bytes; 0xFFFF is read-only legacy-to-EOF */
+  uint16_t level_count;       /* FLAT=0, HIER*=positive */
+  uint32_t uncompressed_len;  /* exact decoded output length */
+  uint32_t crc32;             /* unsupported in v2; must not be serialized */
 } loxc_header_t;
 
 int loxc_header_write(loxc_writer_t *w, const loxc_header_t *h);
 int loxc_header_read(loxc_reader_t *r, loxc_header_t *h);
 int loxc_header_validate(const loxc_header_t *h);
+size_t loxc_header_size(const loxc_header_t *h);
+int loxc_header_resolve_payload_len(const loxc_header_t *h,
+                                    size_t available_bytes,
+                                    size_t *out_payload_len);
+int loxc_reader_finish_zero_padding(loxc_reader_t *r);
 
 uint32_t loxc_crc32(const uint8_t *data, size_t len);
 

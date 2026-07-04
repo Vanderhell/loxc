@@ -4,6 +4,37 @@ const uint8_t *loxc_magic_bytes(void) {
   return LOXC_MAGIC;
 }
 
+static int loxc__strategy_validate(uint8_t strategy_id, uint16_t level_count) {
+  switch (strategy_id) {
+    case LOXC_STRATEGY_FLAT_FIXED_WIDTH:
+      return (level_count == 0u) ? LOXC_OK : LOXC_ERR_INVALID_FORMAT;
+    case LOXC_STRATEGY_HIERARCHICAL_8:
+    case LOXC_STRATEGY_HIERARCHICAL_4:
+      return (level_count != 0u) ? LOXC_OK : LOXC_ERR_INVALID_FORMAT;
+    default:
+      return LOXC_ERR_INVALID_FORMAT;
+  }
+}
+
+static int loxc__header_validate_common(const loxc_header_t *h) {
+  int rc = LOXC_OK;
+
+  if (h == NULL) return LOXC_ERR_NULL;
+  if (h->version != LOXC_HEADER_VERSION_V2) return LOXC_ERR_INVALID_FORMAT;
+  if ((h->flags & (uint8_t)~LOXC_FLAG_EMBEDDED_TABLE) != 0u) {
+    return LOXC_ERR_INVALID_FORMAT;
+  }
+
+  rc = loxc__strategy_validate(h->strategy_id, h->level_count);
+  if (rc != LOXC_OK) return rc;
+
+  if (h->payload_len == 0u && h->uncompressed_len != 0u) {
+    return LOXC_ERR_INVALID_FORMAT;
+  }
+
+  return LOXC_OK;
+}
+
 static int loxc__writer_require_byte_aligned(const loxc_writer_t *w) {
   if (w == NULL) return LOXC_ERR_NULL;
   return (w->bit_pos == 0) ? LOXC_OK : LOXC_ERR_INVALID_MAGIC;
@@ -67,17 +98,68 @@ static int loxc__read_u32_le(loxc_reader_t *r, uint32_t *out) {
 }
 
 int loxc_header_validate(const loxc_header_t *h) {
-  if (h == NULL) return LOXC_ERR_NULL;
-  if (h->version == 0) return LOXC_ERR_INVALID_MAGIC;
+  return loxc__header_validate_common(h);
+}
+
+size_t loxc_header_size(const loxc_header_t *h) {
+  (void)h;
+  return LOXC_HEADER_SIZE_V2;
+}
+
+int loxc_header_resolve_payload_len(const loxc_header_t *h,
+                                    size_t available_bytes,
+                                    size_t *out_payload_len) {
+  int rc = LOXC_OK;
+
+  if (out_payload_len == NULL) return LOXC_ERR_NULL;
+  *out_payload_len = 0;
+
+  rc = loxc__header_validate_common(h);
+  if (rc != LOXC_OK) return rc;
+
+  if (h->payload_len == LOXC_HEADER_PAYLOAD_LEN_LEGACY_TO_EOF) {
+    *out_payload_len = available_bytes;
+  } else if ((size_t)h->payload_len > available_bytes) {
+    return LOXC_ERR_TRUNCATED;
+  } else if ((size_t)h->payload_len < available_bytes) {
+    return LOXC_ERR_INVALID_FORMAT;
+  } else {
+    *out_payload_len = (size_t)h->payload_len;
+  }
+
+  if (*out_payload_len == 0u && h->uncompressed_len != 0u) {
+    return LOXC_ERR_INVALID_FORMAT;
+  }
+
+  return LOXC_OK;
+}
+
+int loxc_reader_finish_zero_padding(loxc_reader_t *r) {
+  if (r == NULL) return LOXC_ERR_NULL;
+
+  if (r->bit_pos != 0u) {
+    const uint8_t current = r->buf[r->byte_pos];
+    const uint8_t mask = (uint8_t)((1u << (8u - r->bit_pos)) - 1u);
+    if ((current & mask) != 0u) return LOXC_ERR_INVALID_FORMAT;
+    r->bit_pos = 0u;
+    r->byte_pos++;
+  }
+
+  if (r->byte_pos != r->len) return LOXC_ERR_INVALID_FORMAT;
   return LOXC_OK;
 }
 
 int loxc_header_write(loxc_writer_t *w, const loxc_header_t *h) {
+  int rc = LOXC_OK;
+
   if (w == NULL || h == NULL) return LOXC_ERR_NULL;
-  int rc = loxc__writer_require_byte_aligned(w);
+  rc = loxc__writer_require_byte_aligned(w);
   if (rc != LOXC_OK) return rc;
-  rc = loxc_header_validate(h);
+  rc = loxc__header_validate_common(h);
   if (rc != LOXC_OK) return rc;
+  if (h->payload_len == LOXC_HEADER_PAYLOAD_LEN_LEGACY_TO_EOF) {
+    return LOXC_ERR_INVALID_FORMAT;
+  }
 
   rc = loxc__write_u8(w, (uint8_t)'L');
   if (rc != LOXC_OK) return rc;
@@ -88,27 +170,20 @@ int loxc_header_write(loxc_writer_t *w, const loxc_header_t *h) {
   rc = loxc__write_u8(w, h->module_id);
   if (rc != LOXC_OK) return rc;
 
-  rc = loxc__write_u8(w, 2u);  /* version = 2 (v2 format) */
+  rc = loxc__write_u8(w, h->version);
   if (rc != LOXC_OK) return rc;
   rc = loxc__write_u8(w, h->flags);
   if (rc != LOXC_OK) return rc;
   rc = loxc__write_u8(w, h->strategy_id);
   if (rc != LOXC_OK) return rc;
 
-  rc = loxc__write_u16_le(w, h->data_len);
+  rc = loxc__write_u16_le(w, h->payload_len);
   if (rc != LOXC_OK) return rc;
   rc = loxc__write_u16_le(w, h->level_count);
   if (rc != LOXC_OK) return rc;
 
-  for (int i = 0; i < 4; i++) {
-    rc = loxc__write_u8(w, h->reserved[i]);
-    if (rc != LOXC_OK) return rc;
-  }
-
-  if ((h->flags & LOXC_FLAG_CRC) != 0) {
-    rc = loxc__write_u32_le(w, h->crc32);
-    if (rc != LOXC_OK) return rc;
-  }
+  rc = loxc__write_u32_le(w, h->uncompressed_len);
+  if (rc != LOXC_OK) return rc;
   return LOXC_OK;
 }
 
@@ -139,23 +214,14 @@ int loxc_header_read(loxc_reader_t *r, loxc_header_t *h) {
   rc = loxc__read_u8(r, &h->strategy_id);
   if (rc != LOXC_OK) return rc;
 
-  rc = loxc__read_u16_le(r, &h->data_len);
+  rc = loxc__read_u16_le(r, &h->payload_len);
   if (rc != LOXC_OK) return rc;
   rc = loxc__read_u16_le(r, &h->level_count);
   if (rc != LOXC_OK) return rc;
 
-  for (int i = 0; i < 4; i++) {
-    uint8_t reserved_byte = 0;
-    rc = loxc__read_u8(r, &reserved_byte);
-    if (rc != LOXC_OK) return rc;
-    h->reserved[i] = reserved_byte;
-  }
-
   h->crc32 = 0;
-  if ((h->flags & LOXC_FLAG_CRC) != 0) {
-    rc = loxc__read_u32_le(r, &h->crc32);
-    if (rc != LOXC_OK) return rc;
-  }
+  rc = loxc__read_u32_le(r, &h->uncompressed_len);
+  if (rc != LOXC_OK) return rc;
 
   return loxc_header_validate(h);
 }

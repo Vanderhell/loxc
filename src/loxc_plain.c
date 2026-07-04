@@ -21,7 +21,7 @@
  */
 
 enum {
-  LOXC_PLAIN_HDR_SIZE_NOCRC = 15  /* v2 header without CRC: magic(3) + module_id(1) + version(1) + flags(1) + strategy_id(1) + data_len(2) + level_count(2) + reserved(4) */
+  LOXC_PLAIN_HDR_SIZE = LOXC_HEADER_SIZE_V2
 };
 
 static const loxc_matrix_value_t g_plain_data[256] = {
@@ -172,12 +172,12 @@ int loxc_plain_encode(const uint8_t *in, size_t in_len, uint8_t *out,
   if (out_len == NULL) return LOXC_ERR_NULL;
   *out_len = 0;
   if (in == NULL || out == NULL) return LOXC_ERR_NULL;
-  if (out_cap < LOXC_PLAIN_HDR_SIZE_NOCRC) return LOXC_ERR_OVERFLOW;
-  if (in_len > 0xFFFFu) return LOXC_ERR_OVERFLOW;
+  if (out_cap < LOXC_PLAIN_HDR_SIZE) return LOXC_ERR_OVERFLOW;
+  if (in_len > 0xFFFFFFFFu) return LOXC_ERR_OVERFLOW;
 
   loxc_writer_t w;
-  int rc = loxc_writer_init(&w, out + LOXC_PLAIN_HDR_SIZE_NOCRC,
-                            out_cap - LOXC_PLAIN_HDR_SIZE_NOCRC);
+  int rc = loxc_writer_init(&w, out + LOXC_PLAIN_HDR_SIZE,
+                            out_cap - LOXC_PLAIN_HDR_SIZE);
   if (rc != LOXC_OK) return rc;
 
   size_t i = 0;
@@ -203,7 +203,7 @@ int loxc_plain_encode(const uint8_t *in, size_t in_len, uint8_t *out,
   if (rc != LOXC_OK) return rc;
 
   size_t data_bytes = loxc_writer_size(&w);
-  if (data_bytes > 0xFFFFu) return LOXC_ERR_OVERFLOW;
+  if (data_bytes > LOXC_HEADER_MAX_EXACT_PAYLOAD_LEN) return LOXC_ERR_OVERFLOW;
 
   loxc_writer_t hw;
   rc = loxc_writer_init(&hw, out, out_cap);
@@ -211,20 +211,19 @@ int loxc_plain_encode(const uint8_t *in, size_t in_len, uint8_t *out,
 
   loxc_header_t h;
   h.module_id = LOXC_MODULE_PLAIN;
-  h.version = 2;  /* v2 format (written by loxc_header_write) */
+  h.version = LOXC_HEADER_VERSION_V2;
   h.flags = 0;
   h.strategy_id = LOXC_STRATEGY_FLAT_FIXED_WIDTH;
-  h.data_len = (uint16_t)data_bytes;
+  h.payload_len = (uint16_t)data_bytes;
   h.level_count = 0;
-  for (int i = 0; i < 4; i++) h.reserved[i] = 0x00;
+  h.uncompressed_len = (uint32_t)in_len;
   h.crc32 = 0;
 
   rc = loxc_header_write(&hw, &h);
   if (rc != LOXC_OK) return rc;
 
-  if (LOXC_PLAIN_HDR_SIZE_NOCRC + data_bytes > out_cap) return LOXC_ERR_OVERFLOW;
-  /* Header already written into out[0..7], data is already in place at +8. */
-  *out_len = LOXC_PLAIN_HDR_SIZE_NOCRC + data_bytes;
+  if (LOXC_PLAIN_HDR_SIZE + data_bytes > out_cap) return LOXC_ERR_OVERFLOW;
+  *out_len = LOXC_PLAIN_HDR_SIZE + data_bytes;
   return LOXC_OK;
 }
 
@@ -242,17 +241,20 @@ int loxc_plain_decode(const uint8_t *in, size_t in_len, uint8_t *out,
   rc = loxc_header_read(&hr, &h);
   if (rc != LOXC_OK) return rc;
   if (h.module_id != LOXC_MODULE_PLAIN) return LOXC_ERR_INVALID_MAGIC;
-  if (h.version != 2) return LOXC_ERR_INVALID_MAGIC;  /* v2 format */
-  if ((h.flags & (LOXC_FLAG_CRC | LOXC_FLAG_DICT)) != 0) return LOXC_ERR_INVALID_MAGIC;
+  if (h.version != LOXC_HEADER_VERSION_V2) return LOXC_ERR_INVALID_MAGIC;
+  if (h.flags != 0u) return LOXC_ERR_INVALID_MAGIC;
   if (h.strategy_id != LOXC_STRATEGY_FLAT_FIXED_WIDTH) return LOXC_ERR_INVALID_MAGIC;
   if (h.level_count != 0) return LOXC_ERR_INVALID_MAGIC;
 
-  size_t header_bytes = 15;  /* v2 header size without CRC */
+  size_t header_bytes = loxc_header_size(&h);
   if (in_len < header_bytes) return LOXC_ERR_TRUNCATED;
-  if ((size_t)h.data_len > (in_len - header_bytes)) return LOXC_ERR_TRUNCATED;
+  size_t payload_len = 0;
+  rc = loxc_header_resolve_payload_len(&h, in_len - header_bytes, &payload_len);
+  if (rc != LOXC_OK) return rc;
+  if ((size_t)h.uncompressed_len > out_cap) return LOXC_ERR_OVERFLOW;
 
   loxc_reader_t r;
-  rc = loxc_reader_init(&r, in + header_bytes, (size_t)h.data_len);
+  rc = loxc_reader_init(&r, in + header_bytes, payload_len);
   if (rc != LOXC_OK) return rc;
 
   size_t out_pos = 0;
@@ -277,6 +279,7 @@ int loxc_plain_decode(const uint8_t *in, size_t in_len, uint8_t *out,
     }
   }
 
+  if (out_pos != (size_t)h.uncompressed_len) return LOXC_ERR_TRUNCATED;
   *out_len = out_pos;
   return LOXC_OK;
 }

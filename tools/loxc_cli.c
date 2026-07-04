@@ -97,7 +97,7 @@ static int header_is_embedded(const uint8_t *input, size_t input_len,
                               int *out_embedded) {
   *out_embedded = 0;
   if (input == NULL) return LOXC_ERR_NULL;
-  if (input_len < 15u) return LOXC_ERR_TRUNCATED;
+  if (input_len < LOXC_HEADER_SIZE_V2) return LOXC_ERR_TRUNCATED;
 
   loxc_reader_t r;
   int rc = loxc_reader_init(&r, input, input_len);
@@ -117,14 +117,6 @@ static void print_flags(uint8_t flags) {
   } else {
     printf(" (");
     int first = 1;
-    if ((flags & LOXC_FLAG_CRC) != 0) {
-      printf("%sCRC", first ? "" : "|");
-      first = 0;
-    }
-    if ((flags & LOXC_FLAG_DICT) != 0) {
-      printf("%sDICT", first ? "" : "|");
-      first = 0;
-    }
     if ((flags & LOXC_FLAG_EMBEDDED_TABLE) != 0) {
       printf("%sEMBEDDED_TABLE", first ? "" : "|");
       first = 0;
@@ -379,24 +371,19 @@ static int command_info(int argc, char **argv) {
     return 1;
   }
 
-  size_t header_bytes = 15u + ((h.flags & LOXC_FLAG_CRC) ? 4u : 0u);
+  size_t header_bytes = loxc_header_size(&h);
   printf("file: %s\n", argv[2]);
-  printf("magic: LOXC\n");
+  printf("magic_prefix: LXC\n");
+  printf("magic_layout: 'L' 'X' 'C' module_id\n");
   printf("module_id: %u\n", (unsigned)h.module_id);
   printf("version: %u\n", (unsigned)h.version);
   print_flags(h.flags);
   printf("strategy: %s (%u)\n", strategy_name(h.strategy_id),
          (unsigned)h.strategy_id);
-  printf("data_len: %u\n", (unsigned)h.data_len);
+  printf("payload_len: %u\n", (unsigned)h.payload_len);
   printf("level_count: %u\n", (unsigned)h.level_count);
-  printf("reserved: %02x %02x %02x %02x\n", (unsigned)h.reserved[0],
-         (unsigned)h.reserved[1], (unsigned)h.reserved[2],
-         (unsigned)h.reserved[3]);
-  if ((h.flags & LOXC_FLAG_CRC) != 0) {
-    printf("crc32: 0x%08x\n", (unsigned)h.crc32);
-  } else {
-    printf("crc32: not used (CRC flag not set)\n");
-  }
+  printf("uncompressed_len: %u\n", (unsigned)h.uncompressed_len);
+  printf("crc32: unsupported in v2\n");
   printf("header_bytes: %zu\n", header_bytes);
   printf("file_bytes: %zu\n", input_len);
   if (input_len >= header_bytes) {

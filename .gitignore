@@ -51,3 +51,4 @@ final_*.log
 test_output*.log
 train_build.log
 demo_compile.log
+/prompts

@@ -13,6 +13,10 @@ static void write_file(const char *path, const void *data, size_t size) {
   assert(fclose(f) == 0);
 }
 
+static void remove_file_if_exists(const char *path) {
+  (void)remove(path);
+}
+
 static void read_file(const char *path, uint8_t **out_data, size_t *out_size) {
   FILE *f = fopen(path, "rb");
   long sz = 0;
@@ -67,14 +71,17 @@ static void test_simple_buffer_roundtrip(void) {
 static void test_simple_file_roundtrip(void) {
   static const char sample[] =
       "The quick brown fox jumps over the lazy dog.\n";
-  const char *input_path = "/tmp/loxc_simple_in.txt";
-  const char *compressed_path = "/tmp/loxc_simple_out.loxc";
-  const char *restored_path = "/tmp/loxc_simple_restored.txt";
+  const char *input_path = "tests/tmp_loxc_simple_in.txt";
+  const char *compressed_path = "tests/tmp_loxc_simple_out.loxc";
+  const char *restored_path = "tests/tmp_loxc_simple_restored.txt";
   uint8_t *restored = NULL;
   size_t restored_size = 0;
   loxc_ctx_t *ctx = loxc_open("modules/loxc_demo.loxctab");
 
   assert(ctx != NULL);
+  remove_file_if_exists(input_path);
+  remove_file_if_exists(compressed_path);
+  remove_file_if_exists(restored_path);
   write_file(input_path, sample, sizeof(sample) - 1u);
   assert(loxc_compress_file(ctx, input_path, compressed_path, 0) == LOXC_OK);
   assert(loxc_decompress_file(ctx, compressed_path, restored_path) == LOXC_OK);
@@ -85,18 +92,24 @@ static void test_simple_file_roundtrip(void) {
 
   free(restored);
   loxc_close(ctx);
+  remove_file_if_exists(input_path);
+  remove_file_if_exists(compressed_path);
+  remove_file_if_exists(restored_path);
 }
 
 static void test_simple_embedded_mode(void) {
   const char *sample = "Embedded round-trip";
-  const char *input_path = "/tmp/loxc_simple_embed_input.txt";
-  const char *embedded_path = "/tmp/loxc_simple_embedded.loxc";
-  const char *restored_path = "/tmp/loxc_simple_embedded.txt";
+  const char *input_path = "tests/tmp_loxc_simple_embed_input.txt";
+  const char *embedded_path = "tests/tmp_loxc_simple_embedded.loxc";
+  const char *restored_path = "tests/tmp_loxc_simple_embedded.txt";
   uint8_t *restored = NULL;
   size_t restored_size = 0;
   loxc_ctx_t *ctx = loxc_open("modules/loxc_demo.loxctab");
 
   assert(ctx != NULL);
+  remove_file_if_exists(input_path);
+  remove_file_if_exists(embedded_path);
+  remove_file_if_exists(restored_path);
   write_file(input_path, sample, strlen(sample));
   assert(loxc_compress_file(ctx, input_path, embedded_path, 1) == LOXC_OK);
   loxc_close(ctx);
@@ -106,6 +119,9 @@ static void test_simple_embedded_mode(void) {
   assert(restored_size == strlen(sample));
   assert(memcmp(restored, sample, restored_size) == 0);
   free(restored);
+  remove_file_if_exists(input_path);
+  remove_file_if_exists(embedded_path);
+  remove_file_if_exists(restored_path);
 }
 
 static void test_simple_error_handling(void) {
@@ -117,12 +133,25 @@ static void test_simple_error_handling(void) {
 }
 
 static void test_simple_invalid_file(void) {
-  const char *bad_path = "/tmp/loxc_simple_invalid.bin";
+  const char *bad_path = "tests/tmp_loxc_simple_invalid.bin";
   const uint8_t bogus[] = {0xFFu, 0x00u, 0xAAu, 0x55u};
 
-  assert(loxc_check_file("/tmp/loxc_does_not_exist.loxc") != LOXC_OK);
+  remove_file_if_exists(bad_path);
+  assert(loxc_check_file("tests/tmp_loxc_does_not_exist.loxc") != LOXC_OK);
   write_file(bad_path, bogus, sizeof(bogus));
   assert(loxc_check_file(bad_path) != LOXC_OK);
+  remove_file_if_exists(bad_path);
+}
+
+static void test_simple_multiple_contexts(void) {
+  loxc_ctx_t *ctx_a = loxc_open("modules/loxc_demo.loxctab");
+  loxc_ctx_t *ctx_b = loxc_open("modules/loxc_demo.loxctab");
+
+  assert(ctx_a != NULL);
+  assert(ctx_b != NULL);
+
+  loxc_close(ctx_b);
+  loxc_close(ctx_a);
 }
 
 int main(void) {
@@ -143,6 +172,9 @@ int main(void) {
 
   test_simple_invalid_file();
   puts("test_simple: PASS (invalid file)");
+
+  test_simple_multiple_contexts();
+  puts("test_simple: PASS (multiple contexts)");
 
   puts("test_simple: PASS (all)");
   return 0;

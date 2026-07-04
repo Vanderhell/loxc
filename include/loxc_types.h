@@ -15,9 +15,14 @@ typedef enum {
   LOXC_ERR_MODULE_NOT_FOUND = 7,
   LOXC_ERR_REGISTRY_FULL = 8,
   LOXC_ERR_DUPLICATE_MODULE = 9,
-  LOXC_ERR_INVALID_MODULE = 10
+  LOXC_ERR_INVALID_MODULE = 10,
+  LOXC_ERR_BUSY = 11
 } loxc_err_t;
 
-static const uint8_t LOXC_MAGIC[4] = { 'L', 'X', 'C', 0x00 };
+/*
+ * Serialized .loxc files begin with the three-byte ASCII prefix "LXC".
+ * The fourth serialized byte is the module id, not part of the magic prefix.
+ */
+static const uint8_t LOXC_MAGIC[3] = { 'L', 'X', 'C' };
 
 #endif /* LOXC_TYPES_H */

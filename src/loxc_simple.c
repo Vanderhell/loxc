@@ -10,6 +10,7 @@
 struct loxc_ctx {
   loxc_module_t *module;
   char *module_name;
+  int owns_module;
 };
 
 static char *loxc_simple_strdup(const char *s) {
@@ -124,12 +125,8 @@ static size_t estimate_decompressed_size(const uint8_t *data, size_t size) {
 
   if (loxc_reader_init(&r, data, size) == LOXC_OK &&
       loxc_header_read(&r, &h) == LOXC_OK) {
-    uint32_t raw_len = (uint32_t)h.reserved[0] |
-                       ((uint32_t)h.reserved[1] << 8u) |
-                       ((uint32_t)h.reserved[2] << 16u) |
-                       ((uint32_t)h.reserved[3] << 24u);
-    if (raw_len != 0u) {
-      guessed = (size_t)raw_len + 1u;
+    if (h.uncompressed_len != 0u) {
+      guessed = (size_t)h.uncompressed_len + 1u;
     }
   }
 
@@ -147,36 +144,48 @@ loxc_ctx_t *loxc_open(const char *table_path) {
   module = loxc_module_load_from_file(table_path);
   if (module == NULL) return NULL;
 
-  if (loxc_module_register(module) != LOXC_OK) {
-    loxc_module_unload(module);
+  int rc = loxc_module_register(module);
+  if (rc != LOXC_OK && rc != LOXC_ERR_DUPLICATE_MODULE) {
+    (void)loxc_module_unload(module);
     return NULL;
   }
 
   ctx = (loxc_ctx_t *)calloc(1u, sizeof(*ctx));
   if (ctx == NULL) {
-    (void)loxc_module_unregister(module->name);
-    loxc_module_unload(module);
+    if (rc == LOXC_OK) {
+      (void)loxc_module_unregister(module->name);
+    }
+    (void)loxc_module_unload(module);
     return NULL;
   }
 
   ctx->module_name = loxc_simple_strdup(module->name);
   if (ctx->module_name == NULL) {
-    (void)loxc_module_unregister(module->name);
-    loxc_module_unload(module);
+    if (rc == LOXC_OK) {
+      (void)loxc_module_unregister(module->name);
+    }
+    (void)loxc_module_unload(module);
     free(ctx);
     return NULL;
   }
 
-  ctx->module = module;
+  if (rc == LOXC_OK) {
+    ctx->module = module;
+    ctx->owns_module = 1;
+  } else {
+    (void)loxc_module_unload(module);
+  }
   return ctx;
 }
 
 void loxc_close(loxc_ctx_t *ctx) {
   if (ctx == NULL) return;
-  if (ctx->module_name != NULL) {
+  if (ctx->owns_module && ctx->module_name != NULL) {
     (void)loxc_module_unregister(ctx->module_name);
   }
-  loxc_module_unload(ctx->module);
+  if (ctx->owns_module) {
+    (void)loxc_module_unload(ctx->module);
+  }
   free(ctx->module_name);
   free(ctx);
 }
@@ -458,6 +467,7 @@ const char *loxc_strerror(int error_code) {
     case LOXC_ERR_REGISTRY_FULL: return "module registry full";
     case LOXC_ERR_DUPLICATE_MODULE: return "module already registered";
     case LOXC_ERR_INVALID_MODULE: return "invalid module structure";
+    case LOXC_ERR_BUSY: return "module operation in progress";
     default: return "unknown error";
   }
 }
@@ -477,7 +487,7 @@ int loxc_check_file(const char *path) {
   nread = fread(header, 1, sizeof(header), f);
   fclose(f);
 
-  if (nread < 15u) return LOXC_ERR_TRUNCATED;
+  if (nread < LOXC_HEADER_SIZE_V2) return LOXC_ERR_TRUNCATED;
   rc = loxc_reader_init(&r, header, nread);
   if (rc != LOXC_OK) return rc;
   rc = loxc_header_read(&r, &h);

@@ -14,6 +14,13 @@ typedef struct {
   int error;
 } loxc_buffer_t;
 
+/*
+ * Threading contract:
+ * - independent loxc_ctx_t instances may be used independently, but this is
+ *   not verified under ThreadSanitizer in this repository
+ * - one shared loxc_ctx_t is not guaranteed thread-safe
+ * - runtime module close/unregister/unload must not race with active use
+ */
 loxc_ctx_t *loxc_open(const char *table_path);
 void loxc_close(loxc_ctx_t *ctx);
 

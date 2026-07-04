@@ -3,7 +3,6 @@
 #include "loxc_base.h"
 #include "loxc_stream.h"
 
-#include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -16,6 +15,7 @@ typedef struct {
 } loxc_sym_t;
 
 typedef struct {
+  uint32_t magic;
   uint8_t module_id;
   uint8_t strategy_id;
   uint8_t base_size;
@@ -34,7 +34,9 @@ typedef struct {
   size_t raw_loxctab_size;
 } loxc_loaded_module_ctx_t;
 
-static loxc_loaded_module_ctx_t *g_current_ctx = NULL;
+enum {
+  LOXC_LOADED_MODULE_MAGIC = 0x4c4f5844u
+};
 
 static uint16_t read_u16_le(const uint8_t *p) {
   return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8u));
@@ -47,6 +49,306 @@ static uint32_t read_u32_le(const uint8_t *p) {
          ((uint32_t)p[3] << 24u);
 }
 
+typedef struct {
+  uint8_t strategy_id;
+  uint8_t base_size;
+  uint8_t bits_per_level;
+  uint8_t direct_slots;
+  uint8_t escape_pos;
+  uint16_t level_count;
+  uint32_t symbol_count;
+  uint32_t dict_count;
+  uint32_t data_size;
+  uint32_t dict_data_size;
+  const uint8_t *data;
+  const uint8_t *symbols_data;
+  const uint8_t *offsets_data;
+  const uint8_t *dict_data;
+} loxc_parsed_table_t;
+
+static int loxc__tab_fail(loxc_tab_error_t *out_error,
+                          int code,
+                          size_t offset,
+                          const char *message) {
+  if (out_error != NULL) {
+    out_error->code = code;
+    out_error->offset = offset;
+    out_error->message = message;
+  }
+  return code;
+}
+
+static int loxc__checked_add_size(size_t a, size_t b, size_t *out) {
+  if (out == NULL) return LOXC_ERR_NULL;
+  if (a > SIZE_MAX - b) return LOXC_ERR_OVERFLOW;
+  *out = a + b;
+  return LOXC_OK;
+}
+
+static int loxc__checked_mul_size(size_t a, size_t b, size_t *out) {
+  if (out == NULL) return LOXC_ERR_NULL;
+  if (a != 0u && b > SIZE_MAX / a) return LOXC_ERR_OVERFLOW;
+  *out = a * b;
+  return LOXC_OK;
+}
+
+static int loxc__validate_strategy_config(uint8_t strategy_id,
+                                          uint8_t base_size,
+                                          uint8_t bits_per_level,
+                                          uint16_t level_count,
+                                          uint8_t *out_direct_slots,
+                                          uint8_t *out_escape_pos) {
+  uint8_t direct_slots = 0u;
+
+  switch (strategy_id) {
+    case LOXC_STRATEGY_FLAT_FIXED_WIDTH:
+      if (base_size != 0u || bits_per_level != 0u || level_count != 0u) {
+        return LOXC_ERR_INVALID_FORMAT;
+      }
+      direct_slots = 0u;
+      break;
+    case LOXC_STRATEGY_HIERARCHICAL_4:
+      if (base_size != 4u || bits_per_level != 4u || level_count == 0u ||
+          level_count > LOXC_TAB_MAX_LEVEL_COUNT) {
+        return LOXC_ERR_INVALID_FORMAT;
+      }
+      direct_slots = 15u;
+      break;
+    case LOXC_STRATEGY_HIERARCHICAL_8:
+      if (base_size != 8u || bits_per_level != 6u || level_count == 0u ||
+          level_count > LOXC_TAB_MAX_LEVEL_COUNT) {
+        return LOXC_ERR_INVALID_FORMAT;
+      }
+      direct_slots = 56u;
+      break;
+    default:
+      return LOXC_ERR_INVALID_FORMAT;
+  }
+
+  if (out_direct_slots != NULL) *out_direct_slots = direct_slots;
+  if (out_escape_pos != NULL) *out_escape_pos = direct_slots;
+  return LOXC_OK;
+}
+
+static int loxc__parse_table(const uint8_t *buf,
+                             size_t file_size,
+                             loxc_parsed_table_t *out_parsed,
+                             loxc_tab_error_t *out_error) {
+  loxc_parsed_table_t parsed;
+  size_t expected_size = 0u;
+  size_t symbols_bytes = 0u;
+  size_t offsets_bytes = 0u;
+  size_t min_data_size = 0u;
+  size_t after_symbols = 0u;
+  size_t after_offsets = 0u;
+  size_t dict_data_end = 0u;
+  size_t i = 0u;
+  uint32_t char_symbol_ids[256];
+
+  if (out_parsed == NULL) {
+    return loxc__tab_fail(out_error, LOXC_ERR_NULL, 0u, "missing parsed output");
+  }
+  memset(&parsed, 0, sizeof(parsed));
+  if (buf == NULL) {
+    return loxc__tab_fail(out_error, LOXC_ERR_NULL, 0u, "null table buffer");
+  }
+
+  if (file_size < LOXC_TAB_HEADER_SIZE + LOXC_TAB_TRAILER_SIZE) {
+    return loxc__tab_fail(out_error, LOXC_ERR_TRUNCATED, 0u, "table shorter than minimum size");
+  }
+  if (file_size > LOXC_TAB_MAX_FILE_SIZE) {
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 0u, "table exceeds maximum supported size");
+  }
+  if (memcmp(buf, LOXC_TAB_MAGIC, 4u) != 0) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_MAGIC, 0u, "invalid loxctab magic");
+  }
+  if (buf[4] != (uint8_t)LOXC_TAB_VERSION) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 4u, "unsupported loxctab version");
+  }
+  if (buf[10] != 0u || buf[11] != 0u) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 10u, "reserved loxctab header bytes must be zero");
+  }
+
+  parsed.strategy_id = buf[5];
+  parsed.base_size = buf[6];
+  parsed.bits_per_level = buf[7];
+  parsed.level_count = read_u16_le(buf + 8u);
+  parsed.symbol_count = read_u32_le(buf + 12u);
+  parsed.dict_count = read_u32_le(buf + 16u);
+  parsed.data_size = read_u32_le(buf + 20u);
+
+  if (parsed.symbol_count == 0u || parsed.symbol_count > LOXC_TAB_MAX_SYMBOLS) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 12u, "invalid loxctab symbol count");
+  }
+  if (parsed.dict_count > LOXC_TAB_MAX_DICT_ENTRIES) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 16u, "invalid loxctab dictionary count");
+  }
+  if (parsed.data_size > LOXC_TAB_MAX_DATA_SIZE) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 20u, "loxctab data section exceeds limit");
+  }
+
+  if (loxc__validate_strategy_config(parsed.strategy_id, parsed.base_size,
+                                     parsed.bits_per_level, parsed.level_count,
+                                     &parsed.direct_slots,
+                                     &parsed.escape_pos) != LOXC_OK) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 5u, "invalid loxctab strategy/base/bits/level configuration");
+  }
+  if (parsed.strategy_id != LOXC_STRATEGY_FLAT_FIXED_WIDTH) {
+    const uint32_t max_symbols =
+        (uint32_t)parsed.level_count * (uint32_t)parsed.direct_slots;
+    if (parsed.symbol_count > max_symbols) {
+      return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 12u,
+                            "hierarchical loxctab symbol count exceeds representable slots");
+    }
+  }
+
+  if (loxc__checked_add_size((size_t)LOXC_TAB_HEADER_SIZE, (size_t)parsed.data_size,
+                             &expected_size) != LOXC_OK ||
+      loxc__checked_add_size(expected_size, (size_t)LOXC_TAB_TRAILER_SIZE,
+                             &expected_size) != LOXC_OK) {
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 20u, "loxctab total size overflows");
+  }
+  if (file_size != expected_size) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 20u, "loxctab size does not match declared data size");
+  }
+
+  if (loxc_crc32(buf, (size_t)LOXC_TAB_HEADER_SIZE + (size_t)parsed.data_size) !=
+      read_u32_le(buf + file_size - LOXC_TAB_TRAILER_SIZE)) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT,
+                          file_size - LOXC_TAB_TRAILER_SIZE,
+                          "loxctab crc mismatch");
+  }
+
+  if (loxc__checked_mul_size((size_t)parsed.symbol_count, 5u, &symbols_bytes) != LOXC_OK ||
+      loxc__checked_add_size((size_t)parsed.dict_count, 1u, &offsets_bytes) != LOXC_OK ||
+      loxc__checked_mul_size(offsets_bytes, 4u, &offsets_bytes) != LOXC_OK) {
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 12u, "loxctab section size overflows");
+  }
+
+  min_data_size = 1024u;
+  if (loxc__checked_add_size(min_data_size, symbols_bytes, &min_data_size) != LOXC_OK ||
+      loxc__checked_add_size(min_data_size, offsets_bytes, &min_data_size) != LOXC_OK ||
+      loxc__checked_add_size(min_data_size, 4u, &min_data_size) != LOXC_OK) {
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 20u, "loxctab minimum data size overflows");
+  }
+  if ((size_t)parsed.data_size < min_data_size) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 20u, "loxctab data section too small");
+  }
+
+  parsed.data = buf + LOXC_TAB_HEADER_SIZE;
+  parsed.symbols_data = parsed.data + 1024u;
+  if (loxc__checked_add_size(1024u, symbols_bytes, &after_symbols) != LOXC_OK ||
+      loxc__checked_add_size(after_symbols, offsets_bytes, &after_offsets) != LOXC_OK) {
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 20u, "loxctab section offsets overflow");
+  }
+  parsed.offsets_data = parsed.data + after_symbols;
+  parsed.dict_data_size = read_u32_le(parsed.data + after_offsets);
+  if (parsed.dict_data_size > LOXC_TAB_MAX_DICT_DATA_BYTES) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT,
+                          LOXC_TAB_HEADER_SIZE + after_offsets,
+                          "loxctab dictionary data exceeds limit");
+  }
+  parsed.dict_data = parsed.data + after_offsets + 4u;
+
+  if (loxc__checked_add_size(after_offsets, 4u, &dict_data_end) != LOXC_OK ||
+      loxc__checked_add_size(dict_data_end, (size_t)parsed.dict_data_size,
+                             &dict_data_end) != LOXC_OK) {
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 20u, "loxctab dictionary data overflows");
+  }
+  if (dict_data_end != (size_t)parsed.data_size) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT,
+                          LOXC_TAB_HEADER_SIZE + after_offsets,
+                          "loxctab dictionary data does not fill declared data section");
+  }
+
+  for (i = 0u; i < 256u; i++) char_symbol_ids[i] = 0xFFFFFFFFu;
+  for (i = 0u; i < (size_t)parsed.symbol_count; i++) {
+    const size_t symbol_off = (size_t)LOXC_TAB_HEADER_SIZE + 1024u + (i * 5u);
+    const uint8_t type = parsed.symbols_data[i * 5u];
+    const uint32_t value = read_u32_le(parsed.symbols_data + (i * 5u) + 1u);
+
+    if (type == 0u) {
+      if (value > 0xFFu) {
+        return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, symbol_off,
+                              "character symbol value exceeds byte range");
+      }
+      if (char_symbol_ids[value] != 0xFFFFFFFFu) {
+        return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, symbol_off,
+                              "duplicate character symbol");
+      }
+      char_symbol_ids[value] = (uint32_t)i;
+    } else if (type == 1u) {
+      if (value >= parsed.dict_count) {
+        return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, symbol_off,
+                              "dictionary symbol index out of range");
+      }
+    } else {
+      return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, symbol_off,
+                            "invalid symbol type");
+    }
+  }
+
+  for (i = 0u; i < 256u; i++) {
+    const uint32_t sym_id = read_u32_le(parsed.data + (i * 4u));
+    if (sym_id == 0xFFFFFFFFu) {
+      if (char_symbol_ids[i] != 0xFFFFFFFFu) {
+        return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT,
+                              LOXC_TAB_HEADER_SIZE + (i * 4u),
+                              "character symbol missing from byte-to-symbol table");
+      }
+      continue;
+    }
+    if (sym_id >= parsed.symbol_count) {
+      return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT,
+                            LOXC_TAB_HEADER_SIZE + (i * 4u),
+                            "byte-to-symbol entry out of range");
+    }
+    if (char_symbol_ids[i] != sym_id) {
+      return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT,
+                            LOXC_TAB_HEADER_SIZE + (i * 4u),
+                            "byte-to-symbol entry does not reference matching character symbol");
+    }
+  }
+
+  if (parsed.dict_count == 0u && parsed.dict_data_size != 0u) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT,
+                          LOXC_TAB_HEADER_SIZE + after_offsets,
+                          "dictionary data must be empty when dictionary count is zero");
+  }
+
+  for (i = 0u; i < (size_t)parsed.dict_count + 1u; i++) {
+    const uint32_t off = read_u32_le(parsed.offsets_data + (i * 4u));
+    if (i == 0u && off != 0u) {
+      return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT,
+                            LOXC_TAB_HEADER_SIZE + after_symbols,
+                            "dictionary offsets must start at zero");
+    }
+    if (off > parsed.dict_data_size) {
+      return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT,
+                            LOXC_TAB_HEADER_SIZE + after_symbols + (i * 4u),
+                            "dictionary offset exceeds dictionary data size");
+    }
+    if (i > 0u) {
+      const uint32_t prev = read_u32_le(parsed.offsets_data + ((i - 1u) * 4u));
+      if (off < prev) {
+        return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT,
+                              LOXC_TAB_HEADER_SIZE + after_symbols + (i * 4u),
+                              "dictionary offsets must be monotonic");
+      }
+    }
+  }
+  if (read_u32_le(parsed.offsets_data + ((size_t)parsed.dict_count * 4u)) !=
+      parsed.dict_data_size) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT,
+                          LOXC_TAB_HEADER_SIZE + after_symbols +
+                              ((size_t)parsed.dict_count * 4u),
+                          "dictionary offset sentinel must equal dictionary data size");
+  }
+
+  *out_parsed = parsed;
+  return LOXC_OK;
+}
+
 static char *loxc_strdup_range(const char *start, size_t len) {
   char *out = (char *)malloc(len + 1u);
   if (out == NULL) return NULL;
@@ -55,8 +357,21 @@ static char *loxc_strdup_range(const char *start, size_t len) {
   return out;
 }
 
+/*
+ * Runtime-loaded module names are derived from the table path basename.
+ * The contract is:
+ * - strip both '/' and '\' directory separators
+ * - strip the trailing ".loxctab" extension
+ * - if the resulting basename starts with the generated-table prefix
+ *   "loxc_", strip that prefix so generated tables register under their
+ *   logical module name
+ */
 static char *module_name_from_path(const char *path) {
   const char *base = strrchr(path, '/');
+  const char *base_win = strrchr(path, '\\');
+  if (base_win != NULL && (base == NULL || base_win > base)) {
+    base = base_win;
+  }
   base = (base == NULL) ? path : base + 1;
 
   const char *start = base;
@@ -81,6 +396,44 @@ static void free_loaded_ctx(loxc_loaded_module_ctx_t *ctx) {
   free(ctx->dict_data);
   free(ctx->raw_loxctab);
   free(ctx);
+}
+
+static int loaded_ctx_from_module(const loxc_module_t *module,
+                                  const loxc_loaded_module_ctx_t **out_ctx) {
+  const loxc_loaded_module_ctx_t *ctx = NULL;
+
+  if (out_ctx == NULL) return LOXC_ERR_NULL;
+  *out_ctx = NULL;
+  if (module == NULL) return LOXC_ERR_NULL;
+
+  ctx = (const loxc_loaded_module_ctx_t *)module->private_data;
+  if (ctx == NULL || ctx->magic != LOXC_LOADED_MODULE_MAGIC) {
+    return LOXC_ERR_INVALID_MODULE;
+  }
+
+  *out_ctx = ctx;
+  return LOXC_OK;
+}
+
+int loxc_registry_module_status(const loxc_module_t *module,
+                                int *out_registered,
+                                int *out_busy);
+
+static int loaded_ctx_from_module_mutable(loxc_module_t *module,
+                                          loxc_loaded_module_ctx_t **out_ctx) {
+  loxc_loaded_module_ctx_t *ctx = NULL;
+
+  if (out_ctx == NULL) return LOXC_ERR_NULL;
+  *out_ctx = NULL;
+  if (module == NULL) return LOXC_ERR_NULL;
+
+  ctx = (loxc_loaded_module_ctx_t *)module->private_data;
+  if (ctx == NULL || ctx->magic != LOXC_LOADED_MODULE_MAGIC) {
+    return LOXC_ERR_INVALID_MODULE;
+  }
+
+  *out_ctx = ctx;
+  return LOXC_OK;
 }
 
 static uint8_t bits_needed_u32(uint32_t n) {
@@ -170,7 +523,7 @@ static int loxc_generic_decode(loxc_reader_t *r,
     uint32_t sym_id = 0;
     if (ctx->strategy_id == LOXC_STRATEGY_FLAT_FIXED_WIDTH) {
       int rc = loxc_read_bits(r, flat_bits, &sym_id);
-      if (rc != LOXC_OK) goto done;
+      if (rc != LOXC_OK) return rc;
     } else {
       if (ctx->direct_slots == 0 || ctx->bits_per_level == 0) {
         return LOXC_ERR_INVALID_FORMAT;
@@ -182,10 +535,7 @@ static int loxc_generic_decode(loxc_reader_t *r,
       for (level = 0; level < (uint32_t)ctx->level_count; level++) {
         uint32_t val = 0;
         int rc = loxc_read_bits(r, ctx->bits_per_level, &val);
-        if (rc != LOXC_OK) {
-          if (level == 0) goto done;
-          return rc;
-        }
+        if (rc != LOXC_OK) return rc;
         if (val < (uint32_t)ctx->direct_slots) {
           pos = val;
           found = 1;
@@ -225,44 +575,65 @@ done:
   return LOXC_OK;
 }
 
-static int loaded_encode_buffer(const uint8_t *in, size_t in_len, uint8_t *out,
-                                size_t out_cap, size_t *out_len) {
+static int loaded_encode_stub(const uint8_t *in, size_t in_len, uint8_t *out,
+                              size_t out_cap, size_t *out_len) {
+  (void)in;
+  (void)in_len;
+  (void)out;
+  (void)out_cap;
+  if (out_len != NULL) *out_len = 0;
+  return LOXC_ERR_INVALID_MODULE;
+}
+
+static int loaded_decode_stub(const uint8_t *in, size_t in_len, uint8_t *out,
+                              size_t out_cap, size_t *out_len) {
+  (void)in;
+  (void)in_len;
+  (void)out;
+  (void)out_cap;
+  if (out_len != NULL) *out_len = 0;
+  return LOXC_ERR_INVALID_MODULE;
+}
+
+int loxc_loaded_module_encode(const loxc_module_t *module,
+                              const uint8_t *in, size_t in_len, uint8_t *out,
+                              size_t out_cap, size_t *out_len) {
+  const loxc_loaded_module_ctx_t *ctx = NULL;
+
   if (out_len == NULL) return LOXC_ERR_NULL;
   *out_len = 0;
   if (in == NULL || out == NULL) return LOXC_ERR_NULL;
-  if (g_current_ctx == NULL) return LOXC_ERR_INVALID_MODULE;
   if (in_len > 0xFFFFFFFFu) return LOXC_ERR_OVERFLOW;
 
-  loxc_writer_t w;
-  int rc = loxc_writer_init(&w, out, out_cap);
+  int rc = loaded_ctx_from_module(module, &ctx);
   if (rc != LOXC_OK) return rc;
 
   loxc_header_t h;
-  h.module_id = g_current_ctx->module_id;
-  h.version = 2u;
+  h.module_id = ctx->module_id;
+  h.version = LOXC_HEADER_VERSION_V2;
   h.flags = 0u;
-  h.strategy_id = g_current_ctx->strategy_id;
-  h.data_len = 0u;
-  h.level_count = g_current_ctx->level_count;
-  h.reserved[0] = (uint8_t)(in_len & 0xFFu);
-  h.reserved[1] = (uint8_t)((in_len >> 8) & 0xFFu);
-  h.reserved[2] = (uint8_t)((in_len >> 16) & 0xFFu);
-  h.reserved[3] = (uint8_t)((in_len >> 24) & 0xFFu);
+  h.strategy_id = ctx->strategy_id;
+  h.payload_len = 0u;
+  h.level_count = ctx->level_count;
+  h.uncompressed_len = (uint32_t)in_len;
   h.crc32 = 0u;
 
-  rc = loxc_header_write(&w, &h);
+  const size_t header_bytes = loxc_header_size(&h);
+  if (out_cap < header_bytes) return LOXC_ERR_OVERFLOW;
+
+  loxc_writer_t w;
+  rc = loxc_writer_init(&w, out + header_bytes, out_cap - header_bytes);
   if (rc != LOXC_OK) return rc;
 
-  rc = loxc_generic_encode((const char *)in, in_len, &w, g_current_ctx);
+  rc = loxc_generic_encode((const char *)in, in_len, &w, ctx);
   if (rc != LOXC_OK) return rc;
   rc = loxc_writer_flush(&w);
   if (rc != LOXC_OK) return rc;
 
-  const size_t total = loxc_writer_size(&w);
-  const size_t header_bytes = 15u;
-  if (total < header_bytes) return LOXC_ERR_INVALID_FORMAT;
-  const size_t data_bytes = total - header_bytes;
-  h.data_len = data_bytes > 0xFFFFu ? 0xFFFFu : (uint16_t)data_bytes;
+  const size_t data_bytes = loxc_writer_size(&w);
+  if (data_bytes > LOXC_HEADER_MAX_EXACT_PAYLOAD_LEN) return LOXC_ERR_OVERFLOW;
+  h.payload_len = (uint16_t)data_bytes;
+  const size_t total = header_bytes + data_bytes;
 
   loxc_writer_t hw;
   rc = loxc_writer_init(&hw, out, header_bytes);
@@ -275,350 +646,269 @@ static int loaded_encode_buffer(const uint8_t *in, size_t in_len, uint8_t *out,
   return LOXC_OK;
 }
 
-static int loaded_decode_buffer(const uint8_t *in, size_t in_len, uint8_t *out,
-                                size_t out_cap, size_t *out_len) {
+int loxc_loaded_module_decode(const loxc_module_t *module,
+                              const uint8_t *in, size_t in_len, uint8_t *out,
+                              size_t out_cap, size_t *out_len) {
+  const loxc_loaded_module_ctx_t *ctx = NULL;
+
   if (out_len == NULL) return LOXC_ERR_NULL;
   *out_len = 0;
   if (in == NULL || out == NULL) return LOXC_ERR_NULL;
-  if (g_current_ctx == NULL) return LOXC_ERR_INVALID_MODULE;
+
+  int rc = loaded_ctx_from_module(module, &ctx);
+  if (rc != LOXC_OK) return rc;
 
   loxc_reader_t hr;
-  int rc = loxc_reader_init(&hr, in, in_len);
+  rc = loxc_reader_init(&hr, in, in_len);
   if (rc != LOXC_OK) return rc;
 
   loxc_header_t h;
   rc = loxc_header_read(&hr, &h);
   if (rc != LOXC_OK) return rc;
-  if (h.module_id != g_current_ctx->module_id) return LOXC_ERR_INVALID_MAGIC;
-  if (h.version != 2u) return LOXC_ERR_INVALID_MAGIC;
+  if (h.module_id != ctx->module_id) return LOXC_ERR_INVALID_MAGIC;
+  if (h.version != LOXC_HEADER_VERSION_V2) return LOXC_ERR_INVALID_MAGIC;
   if (h.flags != 0u) return LOXC_ERR_INVALID_MAGIC;
-  if (h.strategy_id != g_current_ctx->strategy_id) return LOXC_ERR_INVALID_MAGIC;
-  if (h.level_count != g_current_ctx->level_count) return LOXC_ERR_INVALID_MAGIC;
+  if (h.strategy_id != ctx->strategy_id) return LOXC_ERR_INVALID_MAGIC;
+  if (h.level_count != ctx->level_count) return LOXC_ERR_INVALID_MAGIC;
 
-  const size_t header_bytes = 15u;
+  const size_t header_bytes = loxc_header_size(&h);
   if (in_len < header_bytes) return LOXC_ERR_TRUNCATED;
-  size_t data_len = (size_t)h.data_len;
-  if (h.data_len == 0xFFFFu) {
-    data_len = in_len - header_bytes;
-  } else if (data_len > in_len - header_bytes) {
-    return LOXC_ERR_TRUNCATED;
-  }
-
-  const size_t expected_len =
-      (size_t)h.reserved[0] |
-      ((size_t)h.reserved[1] << 8u) |
-      ((size_t)h.reserved[2] << 16u) |
-      ((size_t)h.reserved[3] << 24u);
-  if (expected_len > out_cap) return LOXC_ERR_OVERFLOW;
+  size_t data_len = 0;
+  rc = loxc_header_resolve_payload_len(&h, in_len - header_bytes, &data_len);
+  if (rc != LOXC_OK) return rc;
+  if ((size_t)h.uncompressed_len > out_cap) return LOXC_ERR_OVERFLOW;
 
   loxc_reader_t r;
   rc = loxc_reader_init(&r, in + header_bytes, data_len);
   if (rc != LOXC_OK) return rc;
 
-  size_t cap = expected_len;
-  rc = loxc_generic_decode(&r, (char *)out, &cap, g_current_ctx);
+  size_t cap = (size_t)h.uncompressed_len;
+  rc = loxc_generic_decode(&r, (char *)out, &cap, ctx);
+  if (rc != LOXC_OK) return rc;
+  if (cap != (size_t)h.uncompressed_len) return LOXC_ERR_TRUNCATED;
+  rc = loxc_reader_finish_zero_padding(&r);
   if (rc != LOXC_OK) return rc;
   *out_len = cap;
   return LOXC_OK;
 }
 
-static loxc_module_t *load_module_from_buffer(const uint8_t *buf,
-                                              size_t file_size,
-                                              const char *name) {
-  if (buf == NULL || name == NULL) {
-    fprintf(stderr, "loxc_module_load_from_memory: invalid argument\n");
-    return NULL;
-  }
-  if (g_current_ctx != NULL) {
-    fprintf(stderr,
-            "loxc_module_load_from_file: another module already loaded, unload first\n");
-    return NULL;
-  }
+int loxc_module_load_from_memory_ex(const uint8_t *buf, size_t buf_size,
+                                    const char *name,
+                                    loxc_module_t **out_module,
+                                    loxc_tab_error_t *out_error) {
+  loxc_parsed_table_t parsed;
+  loxc_loaded_module_ctx_t *ctx = NULL;
+  loxc_module_t *module = NULL;
+  char *module_name = NULL;
+  size_t offsets_count = 0u;
+  size_t alloc_total = 0u;
+  size_t bytes = 0u;
+  size_t i = 0u;
 
-  if (file_size < LOXC_TAB_HEADER_SIZE + LOXC_TAB_TRAILER_SIZE) {
-    fprintf(stderr, "loxc_module_load_from_file: file too small (%zu bytes)\n",
-            file_size);
-    return NULL;
+  if (out_module == NULL) {
+    return loxc__tab_fail(out_error, LOXC_ERR_NULL, 0u, "missing module output");
   }
-
-  if (memcmp(buf, LOXC_TAB_MAGIC, 4) != 0) {
-    fprintf(stderr, "loxc_module_load_from_file: invalid magic\n");
-    return NULL;
+  *out_module = NULL;
+  if (name == NULL) {
+    return loxc__tab_fail(out_error, LOXC_ERR_NULL, 0u, "null module name");
   }
 
-  if (buf[4] != (uint8_t)LOXC_TAB_VERSION) {
-    fprintf(stderr,
-            "loxc_module_load_from_file: unsupported version %u, expected %u\n",
-            (unsigned)buf[4], (unsigned)LOXC_TAB_VERSION);
-    return NULL;
+  if (loxc__parse_table(buf, buf_size, &parsed, out_error) != LOXC_OK) {
+    return (out_error != NULL) ? out_error->code : LOXC_ERR_INVALID_FORMAT;
   }
 
-  const uint8_t strategy_id = buf[5];
-  const uint8_t base_size = buf[6];
-  const uint8_t bits_per_level = buf[7];
-  const uint16_t level_count = read_u16_le(buf + 8);
-  const uint32_t symbol_count = read_u32_le(buf + 12);
-  const uint32_t dict_count = read_u32_le(buf + 16);
-  const uint32_t data_size = read_u32_le(buf + 20);
-  (void)strategy_id;
-  (void)base_size;
-  (void)bits_per_level;
-  (void)level_count;
-  (void)symbol_count;
-  (void)dict_count;
-
-  const size_t expected_size =
-      (size_t)LOXC_TAB_HEADER_SIZE + (size_t)data_size +
-      (size_t)LOXC_TAB_TRAILER_SIZE;
-  if (file_size != expected_size) {
-    fprintf(stderr,
-            "loxc_module_load_from_file: size mismatch file=%zu expected=%zu data_size=%u\n",
-            file_size, expected_size, (unsigned)data_size);
-    return NULL;
+  offsets_count = (size_t)parsed.dict_count + 1u;
+  if (loxc__checked_mul_size(256u, sizeof(uint32_t), &alloc_total) != LOXC_OK ||
+      loxc__checked_mul_size((size_t)parsed.symbol_count, sizeof(loxc_sym_t),
+                             &bytes) != LOXC_OK ||
+      loxc__checked_add_size(alloc_total, bytes, &alloc_total) != LOXC_OK ||
+      loxc__checked_mul_size(offsets_count, sizeof(uint32_t), &bytes) != LOXC_OK ||
+      loxc__checked_add_size(alloc_total, bytes, &alloc_total) != LOXC_OK ||
+      loxc__checked_add_size(alloc_total, (size_t)parsed.dict_data_size,
+                             &alloc_total) != LOXC_OK ||
+      loxc__checked_add_size(alloc_total, buf_size, &alloc_total) != LOXC_OK) {
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 0u, "loxctab allocation size overflows");
+  }
+  if (alloc_total > LOXC_TAB_MAX_ALLOC_TOTAL) {
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 0u, "loxctab allocations exceed limit");
   }
 
-  const uint32_t trailer_crc = read_u32_le(buf + file_size - LOXC_TAB_TRAILER_SIZE);
-  const uint32_t computed_crc =
-      loxc_crc32(buf, (size_t)LOXC_TAB_HEADER_SIZE + (size_t)data_size);
-  if (computed_crc != trailer_crc) {
-    fprintf(stderr,
-            "loxc_module_load_from_file: crc mismatch computed=0x%08x trailer=0x%08x\n",
-            (unsigned)computed_crc, (unsigned)trailer_crc);
-    return NULL;
-  }
-
-  const uint8_t *data = buf + LOXC_TAB_HEADER_SIZE;
-  size_t pos = 0;
-  const size_t data_size_sz = (size_t)data_size;
-
-  if (data_size_sz < 1024u) {
-    fprintf(stderr, "loxc_module_load_from_file: data section too small\n");
-    return NULL;
-  }
-  loxc_loaded_module_ctx_t *ctx =
-      (loxc_loaded_module_ctx_t *)calloc(1u, sizeof(loxc_loaded_module_ctx_t));
+  ctx = (loxc_loaded_module_ctx_t *)calloc(1u, sizeof(loxc_loaded_module_ctx_t));
   if (ctx == NULL) {
-    fprintf(stderr, "loxc_module_load_from_file: calloc ctx failed\n");
-    return NULL;
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 0u, "failed to allocate module context");
   }
-
-  ctx->strategy_id = strategy_id;
-  ctx->module_id = 200u;
-  ctx->base_size = base_size;
-  ctx->bits_per_level = bits_per_level;
-  ctx->level_count = level_count;
-  ctx->symbol_count = symbol_count;
-  ctx->dict_count = dict_count;
-  if (base_size == 4u) {
-    ctx->direct_slots = 15u;
-  } else if (base_size == 8u) {
-    ctx->direct_slots = 56u;
-  } else {
-    ctx->direct_slots = 0u;
-  }
-  ctx->escape_pos = ctx->direct_slots;
 
   ctx->byte_to_symbol = (uint32_t *)malloc(256u * sizeof(uint32_t));
-  ctx->symbols = (loxc_sym_t *)malloc((size_t)symbol_count * sizeof(loxc_sym_t));
-  ctx->dict_offsets =
-      (uint32_t *)malloc(((size_t)dict_count + 1u) * sizeof(uint32_t));
+  ctx->symbols = (loxc_sym_t *)malloc((size_t)parsed.symbol_count * sizeof(loxc_sym_t));
+  ctx->dict_offsets = (uint32_t *)malloc(offsets_count * sizeof(uint32_t));
   if (ctx->byte_to_symbol == NULL || ctx->symbols == NULL ||
       ctx->dict_offsets == NULL) {
-    fprintf(stderr, "loxc_module_load_from_file: table allocation failed\n");
     free_loaded_ctx(ctx);
-    return NULL;
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 0u, "failed to allocate loxctab tables");
   }
-
-  if (pos + 1024u > data_size_sz) {
-    fprintf(stderr, "loxc_module_load_from_file: truncated byte_to_symbol\n");
-    free_loaded_ctx(ctx);
-    return NULL;
-  }
-  for (size_t i = 0; i < 256u; i++) {
-    ctx->byte_to_symbol[i] = read_u32_le(data + pos);
-    pos += 4u;
-  }
-
-  const size_t symbols_bytes = (size_t)symbol_count * 5u;
-  if (pos + symbols_bytes > data_size_sz) {
-    fprintf(stderr, "loxc_module_load_from_file: truncated symbols table\n");
-    free_loaded_ctx(ctx);
-    return NULL;
-  }
-  for (uint32_t i = 0; i < symbol_count; i++) {
-    ctx->symbols[i].type = data[pos++];
-    ctx->symbols[i].byte_or_idx = read_u32_le(data + pos);
-    pos += 4u;
-  }
-
-  const size_t offsets_bytes = ((size_t)dict_count + 1u) * 4u;
-  if (pos + offsets_bytes > data_size_sz) {
-    fprintf(stderr, "loxc_module_load_from_file: truncated dict offsets\n");
-    free_loaded_ctx(ctx);
-    return NULL;
-  }
-  for (uint32_t i = 0; i < dict_count + 1u; i++) {
-    ctx->dict_offsets[i] = read_u32_le(data + pos);
-    pos += 4u;
-  }
-
-  if (pos + 4u > data_size_sz) {
-    fprintf(stderr, "loxc_module_load_from_file: missing dict_data_size\n");
-    free_loaded_ctx(ctx);
-    return NULL;
-  }
-  ctx->dict_data_size = read_u32_le(data + pos);
-  pos += 4u;
-
-  if (pos + (size_t)ctx->dict_data_size != data_size_sz) {
-    fprintf(stderr,
-            "loxc_module_load_from_file: dict data size mismatch pos=%zu dict_data_size=%u data_size=%u\n",
-            pos, (unsigned)ctx->dict_data_size, (unsigned)data_size);
-    free_loaded_ctx(ctx);
-    return NULL;
-  }
-  if (dict_count > 0 && ctx->dict_offsets[dict_count] != ctx->dict_data_size) {
-    fprintf(stderr,
-            "loxc_module_load_from_file: dict offset sentinel mismatch offset=%u data_size=%u\n",
-            (unsigned)ctx->dict_offsets[dict_count],
-            (unsigned)ctx->dict_data_size);
-    free_loaded_ctx(ctx);
-    return NULL;
-  }
-
-  if (ctx->dict_data_size > 0) {
-    ctx->dict_data = (uint8_t *)malloc(ctx->dict_data_size);
+  if (parsed.dict_data_size > 0u) {
+    ctx->dict_data = (uint8_t *)malloc((size_t)parsed.dict_data_size);
     if (ctx->dict_data == NULL) {
-      fprintf(stderr, "loxc_module_load_from_file: dict data allocation failed\n");
       free_loaded_ctx(ctx);
-      return NULL;
+      return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 0u, "failed to allocate loxctab dictionary data");
     }
-    memcpy(ctx->dict_data, data + pos, ctx->dict_data_size);
   }
-
-  ctx->raw_loxctab = (uint8_t *)malloc(file_size);
+  ctx->raw_loxctab = (uint8_t *)malloc(buf_size);
   if (ctx->raw_loxctab == NULL) {
-    fprintf(stderr, "loxc_module_load_from_file: raw loxctab allocation failed\n");
     free_loaded_ctx(ctx);
-    return NULL;
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 0u, "failed to retain raw loxctab blob");
   }
-  memcpy(ctx->raw_loxctab, buf, file_size);
-  ctx->raw_loxctab_size = file_size;
 
-  loxc_module_t *module = (loxc_module_t *)calloc(1u, sizeof(loxc_module_t));
+  for (i = 0u; i < 256u; i++) {
+    ctx->byte_to_symbol[i] = read_u32_le(parsed.data + (i * 4u));
+  }
+  for (i = 0u; i < (size_t)parsed.symbol_count; i++) {
+    ctx->symbols[i].type = parsed.symbols_data[i * 5u];
+    ctx->symbols[i].byte_or_idx =
+        read_u32_le(parsed.symbols_data + (i * 5u) + 1u);
+  }
+  for (i = 0u; i < offsets_count; i++) {
+    ctx->dict_offsets[i] = read_u32_le(parsed.offsets_data + (i * 4u));
+  }
+  if (parsed.dict_data_size > 0u) {
+    memcpy(ctx->dict_data, parsed.dict_data, (size_t)parsed.dict_data_size);
+  }
+  memcpy(ctx->raw_loxctab, buf, buf_size);
+
+  module = (loxc_module_t *)calloc(1u, sizeof(loxc_module_t));
   if (module == NULL) {
-    fprintf(stderr, "loxc_module_load_from_file: calloc module failed\n");
     free_loaded_ctx(ctx);
-    return NULL;
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 0u, "failed to allocate module object");
   }
 
-  char *module_name = loxc_strdup_range(name, strlen(name));
+  module_name = loxc_strdup_range(name, strlen(name));
   if (module_name == NULL) {
-    fprintf(stderr, "loxc_module_load_from_file: module name allocation failed\n");
     free(module);
     free_loaded_ctx(ctx);
-    return NULL;
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 0u, "failed to allocate module name");
   }
+
+  ctx->magic = LOXC_LOADED_MODULE_MAGIC;
+  ctx->module_id = 200u;
+  ctx->strategy_id = parsed.strategy_id;
+  ctx->base_size = parsed.base_size;
+  ctx->bits_per_level = parsed.bits_per_level;
+  ctx->direct_slots = parsed.direct_slots;
+  ctx->escape_pos = parsed.escape_pos;
+  ctx->level_count = parsed.level_count;
+  ctx->symbol_count = parsed.symbol_count;
+  ctx->dict_count = parsed.dict_count;
+  ctx->dict_data_size = parsed.dict_data_size;
+  ctx->raw_loxctab_size = buf_size;
 
   module->name = module_name;
   module->module_id = ctx->module_id;
   module->version = 2u;
   module->strategy_id = ctx->strategy_id;
-  module->encode = loaded_encode_buffer;
-  module->decode = loaded_decode_buffer;
+  module->encode = loaded_encode_stub;
+  module->decode = loaded_decode_stub;
   module->private_data = ctx;
-  g_current_ctx = ctx;
-
-  fprintf(stderr,
-          "loxc_module_load_from_file: loaded module '%s', strategy=%d, symbols=%u, dict=%u, levels=%u\n",
-          module->name, (int)ctx->strategy_id, (unsigned)ctx->symbol_count,
-          (unsigned)ctx->dict_count, (unsigned)ctx->level_count);
-  return module;
+  *out_module = module;
+  return LOXC_OK;
 }
 
 loxc_module_t *loxc_module_load_from_memory(const uint8_t *buf, size_t buf_size,
                                             const char *name) {
-  return load_module_from_buffer(buf, buf_size, name);
-}
-
-loxc_module_t *loxc_module_load_from_file(const char *path) {
-  if (path == NULL) {
-    fprintf(stderr, "loxc_module_load_from_file: path is NULL\n");
+  loxc_module_t *module = NULL;
+  if (loxc_module_load_from_memory_ex(buf, buf_size, name, &module, NULL) !=
+      LOXC_OK) {
     return NULL;
   }
-
-  FILE *f = fopen(path, "rb");
-  if (f == NULL) {
-    fprintf(stderr, "loxc_module_load_from_file: cannot open %s: %s\n",
-            path, strerror(errno));
-    return NULL;
-  }
-
-  if (fseek(f, 0, SEEK_END) != 0) {
-    fprintf(stderr, "loxc_module_load_from_file: cannot seek %s: %s\n",
-            path, strerror(errno));
-    fclose(f);
-    return NULL;
-  }
-
-  long file_size_long = ftell(f);
-  if (file_size_long < 0) {
-    fprintf(stderr, "loxc_module_load_from_file: cannot tell %s: %s\n",
-            path, strerror(errno));
-    fclose(f);
-    return NULL;
-  }
-
-  if (fseek(f, 0, SEEK_SET) != 0) {
-    fprintf(stderr, "loxc_module_load_from_file: cannot rewind %s: %s\n",
-            path, strerror(errno));
-    fclose(f);
-    return NULL;
-  }
-
-  const size_t file_size = (size_t)file_size_long;
-  uint8_t *buf = NULL;
-  if (file_size > 0) {
-    buf = (uint8_t *)malloc(file_size);
-    if (buf == NULL) {
-      fprintf(stderr, "loxc_module_load_from_file: malloc failed for %zu bytes\n",
-              file_size);
-      fclose(f);
-      return NULL;
-    }
-  }
-
-  size_t nread = 0;
-  if (file_size > 0) nread = fread(buf, 1, file_size, f);
-  fclose(f);
-  if (nread != file_size) {
-    fprintf(stderr, "loxc_module_load_from_file: short read %s (%zu/%zu bytes)\n",
-            path, nread, file_size);
-    free(buf);
-    return NULL;
-  }
-
-  char *name = module_name_from_path(path);
-  if (name == NULL) {
-    fprintf(stderr, "loxc_module_load_from_file: module name allocation failed\n");
-    free(buf);
-    return NULL;
-  }
-  loxc_module_t *module = load_module_from_buffer(buf, file_size, name);
-  free(name);
-  free(buf);
   return module;
 }
 
-void loxc_module_unload(loxc_module_t *module) {
-  if (module == NULL) return;
+int loxc_module_load_from_file_ex(const char *path,
+                                  loxc_module_t **out_module,
+                                  loxc_tab_error_t *out_error) {
+  FILE *f = NULL;
+  long file_size_long = 0;
+  size_t file_size = 0u;
+  uint8_t *buf = NULL;
+  size_t nread = 0u;
+  char *name = NULL;
+  int rc = LOXC_OK;
 
-  if (module->private_data == g_current_ctx) {
-    g_current_ctx = NULL;
+  if (out_module == NULL) {
+    return loxc__tab_fail(out_error, LOXC_ERR_NULL, 0u, "missing module output");
   }
-  free_loaded_ctx((loxc_loaded_module_ctx_t *)module->private_data);
+  *out_module = NULL;
+  if (path == NULL) {
+    return loxc__tab_fail(out_error, LOXC_ERR_NULL, 0u, "null table path");
+  }
+
+  f = fopen(path, "rb");
+  if (f == NULL) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 0u, "failed to open loxctab file");
+  }
+  if (fseek(f, 0, SEEK_END) != 0) {
+    fclose(f);
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 0u, "failed to seek loxctab file");
+  }
+  file_size_long = ftell(f);
+  if (file_size_long < 0) {
+    fclose(f);
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 0u, "failed to determine loxctab file size");
+  }
+  if (fseek(f, 0, SEEK_SET) != 0) {
+    fclose(f);
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 0u, "failed to rewind loxctab file");
+  }
+
+  file_size = (size_t)file_size_long;
+  if (file_size > 0u) {
+    buf = (uint8_t *)malloc(file_size);
+    if (buf == NULL) {
+      fclose(f);
+      return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 0u, "failed to allocate loxctab file buffer");
+    }
+    nread = fread(buf, 1, file_size, f);
+  }
+  fclose(f);
+  if (nread != file_size) {
+    free(buf);
+    return loxc__tab_fail(out_error, LOXC_ERR_TRUNCATED, 0u, "failed to read complete loxctab file");
+  }
+
+  name = module_name_from_path(path);
+  if (name == NULL) {
+    free(buf);
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 0u, "failed to derive module name from path");
+  }
+  rc = loxc_module_load_from_memory_ex(buf, file_size, name, out_module, out_error);
+  free(name);
+  free(buf);
+  return rc;
+}
+
+loxc_module_t *loxc_module_load_from_file(const char *path) {
+  loxc_module_t *module = NULL;
+  if (loxc_module_load_from_file_ex(path, &module, NULL) != LOXC_OK) return NULL;
+  return module;
+}
+
+int loxc_module_unload(loxc_module_t *module) {
+  loxc_loaded_module_ctx_t *ctx = NULL;
+  int is_registered = 0;
+  int is_busy = 0;
+
+  if (module == NULL) return LOXC_ERR_NULL;
+  if (loaded_ctx_from_module_mutable(module, &ctx) != LOXC_OK) {
+    return LOXC_ERR_INVALID_MODULE;
+  }
+  if (loxc_registry_module_status(module, &is_registered, &is_busy) != LOXC_OK) {
+    return LOXC_ERR_INVALID_MODULE;
+  }
+  if (is_registered || is_busy) return LOXC_ERR_BUSY;
+
+  free_loaded_ctx(ctx);
   free((void *)module->name);
   free(module);
+  return LOXC_OK;
 }
 
 int loxc_module_get_table_blob(const loxc_module_t *module,
@@ -629,9 +919,9 @@ int loxc_module_get_table_blob(const loxc_module_t *module,
   *out_size = 0;
   if (module == NULL) return LOXC_ERR_NULL;
 
-  const loxc_loaded_module_ctx_t *ctx =
-      (const loxc_loaded_module_ctx_t *)module->private_data;
-  if (ctx == NULL || ctx->raw_loxctab == NULL || ctx->raw_loxctab_size == 0) {
+  const loxc_loaded_module_ctx_t *ctx = NULL;
+  if (loaded_ctx_from_module(module, &ctx) != LOXC_OK) return LOXC_ERR_INVALID_MODULE;
+  if (ctx->raw_loxctab == NULL || ctx->raw_loxctab_size == 0) {
     return LOXC_ERR_INVALID_FORMAT;
   }
 

@@ -8,6 +8,16 @@
 #define LOXC_TAB_HEADER_SIZE 24u
 #define LOXC_TAB_TRAILER_SIZE 4u
 
+enum {
+  LOXC_TAB_MAX_FILE_SIZE = 16u * 1024u * 1024u,
+  LOXC_TAB_MAX_DATA_SIZE = 16u * 1024u * 1024u,
+  LOXC_TAB_MAX_SYMBOLS = 16384u,
+  LOXC_TAB_MAX_DICT_ENTRIES = 16384u,
+  LOXC_TAB_MAX_DICT_DATA_BYTES = 8u * 1024u * 1024u,
+  LOXC_TAB_MAX_LEVEL_COUNT = 1024u,
+  LOXC_TAB_MAX_ALLOC_TOTAL = 24u * 1024u * 1024u
+};
+
 /*
  * .loxctab on-disk layout.
  *
@@ -37,9 +47,27 @@
  *   crc32 of header + data (u32 LE)
  */
 
+typedef struct {
+  int code;
+  size_t offset;
+  const char *message;
+} loxc_tab_error_t;
+
 loxc_module_t *loxc_module_load_from_file(const char *path);
 loxc_module_t *loxc_module_load_from_memory(const uint8_t *buf, size_t buf_size,
                                             const char *name);
-void loxc_module_unload(loxc_module_t *module);
+int loxc_module_load_from_file_ex(const char *path,
+                                  loxc_module_t **out_module,
+                                  loxc_tab_error_t *out_error);
+int loxc_module_load_from_memory_ex(const uint8_t *buf, size_t buf_size,
+                                    const char *name,
+                                    loxc_module_t **out_module,
+                                    loxc_tab_error_t *out_error);
+/*
+ * Unloads a runtime-loaded module after it has been unregistered.
+ * Returns LOXC_ERR_BUSY for still-registered modules and
+ * LOXC_ERR_INVALID_MODULE for static/generated modules.
+ */
+int loxc_module_unload(loxc_module_t *module);
 
 #endif /* LOXC_TAB_H */
