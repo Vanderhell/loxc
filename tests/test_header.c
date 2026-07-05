@@ -45,6 +45,7 @@ static void test_roundtrip_no_crc(void) {
   h.payload_len = 0x1234;
   h.level_count = 0;
   h.uncompressed_len = 0xA3A2A1A0u;
+  h.table_fingerprint = 0x11223344u;
   h.crc32 = 0;
 
   assert(loxc_header_write(&w, &h) == LOXC_OK);
@@ -62,6 +63,7 @@ static void test_roundtrip_no_crc(void) {
   assert(out.payload_len == h.payload_len);
   assert(out.level_count == h.level_count);
   assert(out.uncompressed_len == h.uncompressed_len);
+  assert(out.table_fingerprint == h.table_fingerprint);
   assert(out.crc32 == 0u);
   assert(loxc_reader_eof(&r) != 0);
 }
@@ -92,6 +94,7 @@ static void test_unsupported_version(void) {
   h.payload_len = 1u;
   h.level_count = 0u;
   h.uncompressed_len = 1u;
+  h.table_fingerprint = 0u;
   h.crc32 = 0u;
   loxc_writer_t w;
   assert(loxc_writer_init(&w, buf, sizeof(buf)) == LOXC_OK);
@@ -187,6 +190,7 @@ static void test_crc_flag_rejected(void) {
   h.payload_len = 4u;
   h.level_count = 0u;
   h.uncompressed_len = 4u;
+  h.table_fingerprint = 0u;
   h.crc32 = 0x12345678u;
 
   loxc_writer_t w;

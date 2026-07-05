@@ -16,13 +16,16 @@ typedef struct {
 
 typedef struct {
   uint32_t magic;
+  char *table_name;
   uint8_t module_id;
+  uint8_t format_version;
   uint8_t strategy_id;
   uint8_t base_size;
   uint8_t bits_per_level;
   uint8_t direct_slots;
   uint8_t escape_pos;
   uint16_t level_count;
+  uint32_t table_fingerprint;
   uint32_t symbol_count;
   uint32_t dict_count;
   uint32_t *byte_to_symbol;
@@ -50,16 +53,20 @@ static uint32_t read_u32_le(const uint8_t *p) {
 }
 
 typedef struct {
+  uint8_t format_version;
+  uint8_t module_id;
   uint8_t strategy_id;
   uint8_t base_size;
   uint8_t bits_per_level;
   uint8_t direct_slots;
   uint8_t escape_pos;
   uint16_t level_count;
+  uint32_t table_fingerprint;
   uint32_t symbol_count;
   uint32_t dict_count;
   uint32_t data_size;
   uint32_t dict_data_size;
+  char table_name[LOXC_TAB_MAX_NAME_LEN + 1u];
   const uint8_t *data;
   const uint8_t *symbols_data;
   const uint8_t *offsets_data;
@@ -165,17 +172,40 @@ static int loxc__parse_table(const uint8_t *buf,
   if (buf[4] != (uint8_t)LOXC_TAB_VERSION) {
     return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 4u, "unsupported loxctab version");
   }
-  if (buf[10] != 0u || buf[11] != 0u) {
-    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 10u, "reserved loxctab header bytes must be zero");
+  if (buf[61] != 0u || buf[62] != 0u || buf[63] != 0u) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 61u, "reserved loxctab header bytes must be zero");
   }
 
-  parsed.strategy_id = buf[5];
-  parsed.base_size = buf[6];
-  parsed.bits_per_level = buf[7];
-  parsed.level_count = read_u16_le(buf + 8u);
+  parsed.format_version = buf[5];
+  parsed.module_id = buf[6];
+  parsed.strategy_id = buf[7];
+  parsed.base_size = buf[8];
+  parsed.bits_per_level = buf[9];
+  parsed.level_count = read_u16_le(buf + 10u);
   parsed.symbol_count = read_u32_le(buf + 12u);
   parsed.dict_count = read_u32_le(buf + 16u);
   parsed.data_size = read_u32_le(buf + 20u);
+  parsed.table_fingerprint = read_u32_le(buf + 24u);
+  if (buf[28] > LOXC_TAB_MAX_NAME_LEN) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 28u, "invalid loxctab table name length");
+  }
+  memcpy(parsed.table_name, buf + 29u, LOXC_TAB_MAX_NAME_LEN);
+  parsed.table_name[buf[28]] = '\0';
+  for (i = (size_t)buf[28]; i < LOXC_TAB_MAX_NAME_LEN; i++) {
+    if (parsed.table_name[i] != '\0') {
+      return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 29u + i,
+                            "loxctab table name padding must be zero");
+    }
+  }
+  if (parsed.format_version == 0u) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 5u, "invalid loxctab module format version");
+  }
+  if (parsed.table_fingerprint == 0u) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 24u, "missing loxctab table fingerprint");
+  }
+  if (parsed.table_name[0] == '\0') {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 28u, "missing loxctab table name");
+  }
 
   if (parsed.symbol_count == 0u || parsed.symbol_count > LOXC_TAB_MAX_SYMBOLS) {
     return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 12u, "invalid loxctab symbol count");
@@ -191,7 +221,7 @@ static int loxc__parse_table(const uint8_t *buf,
                                      parsed.bits_per_level, parsed.level_count,
                                      &parsed.direct_slots,
                                      &parsed.escape_pos) != LOXC_OK) {
-    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 5u, "invalid loxctab strategy/base/bits/level configuration");
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 7u, "invalid loxctab strategy/base/bits/level configuration");
   }
   if (parsed.strategy_id != LOXC_STRATEGY_FLAT_FIXED_WIDTH) {
     const uint32_t max_symbols =
@@ -390,6 +420,7 @@ static char *module_name_from_path(const char *path) {
 
 static void free_loaded_ctx(loxc_loaded_module_ctx_t *ctx) {
   if (ctx == NULL) return;
+  free(ctx->table_name);
   free(ctx->byte_to_symbol);
   free(ctx->symbols);
   free(ctx->dict_offsets);
@@ -616,6 +647,7 @@ int loxc_loaded_module_encode(const loxc_module_t *module,
   h.payload_len = 0u;
   h.level_count = ctx->level_count;
   h.uncompressed_len = (uint32_t)in_len;
+  h.table_fingerprint = ctx->table_fingerprint;
   h.crc32 = 0u;
 
   const size_t header_bytes = loxc_header_size(&h);
@@ -668,6 +700,7 @@ int loxc_loaded_module_decode(const loxc_module_t *module,
   if (h.module_id != ctx->module_id) return LOXC_ERR_INVALID_MAGIC;
   if (h.version != LOXC_HEADER_VERSION_V2) return LOXC_ERR_INVALID_MAGIC;
   if (h.flags != 0u) return LOXC_ERR_INVALID_MAGIC;
+  if (h.table_fingerprint != ctx->table_fingerprint) return LOXC_ERR_INVALID_MAGIC;
   if (h.strategy_id != ctx->strategy_id) return LOXC_ERR_INVALID_MAGIC;
   if (h.level_count != ctx->level_count) return LOXC_ERR_INVALID_MAGIC;
 
@@ -789,22 +822,34 @@ int loxc_module_load_from_memory_ex(const uint8_t *buf, size_t buf_size,
   }
 
   ctx->magic = LOXC_LOADED_MODULE_MAGIC;
-  ctx->module_id = 200u;
+  ctx->table_name = loxc_strdup_range(parsed.table_name, strlen(parsed.table_name));
+  if (ctx->table_name == NULL) {
+    free(module_name);
+    free(module);
+    free_loaded_ctx(ctx);
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 0u, "failed to allocate table name");
+  }
+  ctx->module_id = parsed.module_id;
+  ctx->format_version = parsed.format_version;
   ctx->strategy_id = parsed.strategy_id;
   ctx->base_size = parsed.base_size;
   ctx->bits_per_level = parsed.bits_per_level;
   ctx->direct_slots = parsed.direct_slots;
   ctx->escape_pos = parsed.escape_pos;
   ctx->level_count = parsed.level_count;
+  ctx->table_fingerprint = parsed.table_fingerprint;
   ctx->symbol_count = parsed.symbol_count;
   ctx->dict_count = parsed.dict_count;
   ctx->dict_data_size = parsed.dict_data_size;
   ctx->raw_loxctab_size = buf_size;
 
   module->name = module_name;
+  module->table_name = ctx->table_name;
   module->module_id = ctx->module_id;
-  module->version = 2u;
+  module->version = ctx->format_version;
   module->strategy_id = ctx->strategy_id;
+  module->level_count = ctx->level_count;
+  module->table_fingerprint = ctx->table_fingerprint;
   module->encode = loaded_encode_stub;
   module->decode = loaded_decode_stub;
   module->private_data = ctx;

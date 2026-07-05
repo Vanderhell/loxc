@@ -184,6 +184,8 @@ int loxc_header_write(loxc_writer_t *w, const loxc_header_t *h) {
 
   rc = loxc__write_u32_le(w, h->uncompressed_len);
   if (rc != LOXC_OK) return rc;
+  rc = loxc__write_u32_le(w, h->table_fingerprint);
+  if (rc != LOXC_OK) return rc;
   return LOXC_OK;
 }
 
@@ -221,6 +223,8 @@ int loxc_header_read(loxc_reader_t *r, loxc_header_t *h) {
 
   h->crc32 = 0;
   rc = loxc__read_u32_le(r, &h->uncompressed_len);
+  if (rc != LOXC_OK) return rc;
+  rc = loxc__read_u32_le(r, &h->table_fingerprint);
   if (rc != LOXC_OK) return rc;
 
   return loxc_header_validate(h);

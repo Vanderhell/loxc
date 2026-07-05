@@ -171,20 +171,83 @@ static int write_all(FILE *f, const void *buf, size_t len) {
   return fwrite(buf, 1, len, f) == len ? 0 : 1;
 }
 
+static uint32_t compute_table_fingerprint(const uint32_t *byte_to_symbol,
+                                          const symbol_rec_t *symbols,
+                                          size_t symbol_count,
+                                          const uint32_t *symbol_to_dict_index,
+                                          size_t dict_count,
+                                          const uint8_t *dict_data,
+                                          const uint32_t *dict_offsets,
+                                          uint8_t strategy_id,
+                                          uint8_t base_size,
+                                          uint8_t bits_per_level,
+                                          uint16_t level_count) {
+  const uint32_t dict_data_size = dict_offsets[dict_count];
+  const size_t data_size_sz =
+      1024u + (symbol_count * 5u) + ((dict_count + 1u) * 4u) + 4u +
+      (size_t)dict_data_size;
+  const size_t meta_size = 1u + 1u + 1u + 2u + 4u + 4u + data_size_sz;
+  uint8_t *buf = (uint8_t *)malloc(meta_size);
+  size_t pos = 0u;
+  uint32_t fingerprint = 0u;
+
+  if (buf == NULL) return 0u;
+  buf[pos++] = strategy_id;
+  buf[pos++] = base_size;
+  buf[pos++] = bits_per_level;
+  write_u16_le_buf(buf + pos, level_count);
+  pos += 2u;
+  write_u32_le_buf(buf + pos, (uint32_t)symbol_count);
+  pos += 4u;
+  write_u32_le_buf(buf + pos, (uint32_t)dict_count);
+  pos += 4u;
+
+  for (int i = 0; i < 256; i++) {
+    write_u32_le_buf(buf + pos, byte_to_symbol[i]);
+    pos += 4u;
+  }
+  for (size_t i = 0; i < symbol_count; i++) {
+    buf[pos++] = symbols[i].is_dict ? 1u : 0u;
+    write_u32_le_buf(buf + pos,
+                     symbols[i].is_dict ? symbol_to_dict_index[symbols[i].symbol_id]
+                                        : (uint32_t)symbols[i].char_val);
+    pos += 4u;
+  }
+  for (size_t i = 0; i < dict_count + 1u; i++) {
+    write_u32_le_buf(buf + pos, dict_offsets[i]);
+    pos += 4u;
+  }
+  write_u32_le_buf(buf + pos, dict_data_size);
+  pos += 4u;
+  if (dict_data_size > 0u) {
+    memcpy(buf + pos, dict_data, dict_data_size);
+    pos += dict_data_size;
+  }
+
+  fingerprint = loxc_crc32(buf, pos);
+  free(buf);
+  return fingerprint;
+}
+
 static int write_loxctab_file(
     const char *path,
+    const char *module_name,
+    uint8_t module_id,
+    uint8_t module_version,
     const symbol_rec_t *symbols, size_t symbol_count,
     const uint32_t *byte_to_symbol,
     const uint32_t *dict_symbol_ids, size_t dict_count,
     const uint8_t *dict_data, const uint32_t *dict_offsets,
+    uint32_t table_fingerprint,
     uint8_t strategy_id,
     uint8_t base_size,
     uint8_t bits_per_level,
     uint16_t level_count) {
   if (path == NULL || symbols == NULL || byte_to_symbol == NULL ||
-      dict_symbol_ids == NULL || dict_offsets == NULL) {
+      dict_symbol_ids == NULL || dict_offsets == NULL || module_name == NULL) {
     return 1;
   }
+  if (strlen(module_name) > LOXC_TAB_MAX_NAME_LEN) return 1;
 
   const uint32_t dict_data_size = dict_offsets[dict_count];
   if (dict_data_size > 0 && dict_data == NULL) return 1;
@@ -202,13 +265,18 @@ static int write_loxctab_file(
   memset(header, 0, sizeof(header));
   memcpy(header, LOXC_TAB_MAGIC, 4);
   header[4] = (uint8_t)LOXC_TAB_VERSION;
-  header[5] = strategy_id;
-  header[6] = base_size;
-  header[7] = bits_per_level;
-  write_u16_le_buf(header + 8, level_count);
+  header[5] = module_version;
+  header[6] = module_id;
+  header[7] = strategy_id;
+  header[8] = base_size;
+  header[9] = bits_per_level;
+  write_u16_le_buf(header + 10, level_count);
   write_u32_le_buf(header + 12, (uint32_t)symbol_count);
   write_u32_le_buf(header + 16, (uint32_t)dict_count);
   write_u32_le_buf(header + 20, data_size);
+  write_u32_le_buf(header + 24, table_fingerprint);
+  header[28] = (uint8_t)strlen(module_name);
+  memcpy(header + 29, module_name, strlen(module_name));
 
   uint8_t *data = (uint8_t *)malloc(data_size_sz);
   if (data == NULL) {
@@ -299,19 +367,26 @@ static int write_loxctab_file(
   printf("  Header: %u bytes\n", (unsigned)LOXC_TAB_HEADER_SIZE);
   printf("  Data: %u bytes\n", (unsigned)data_size);
   printf("  Trailer (CRC): %u bytes\n", (unsigned)LOXC_TAB_TRAILER_SIZE);
+  printf("  Module ID: %u\n", (unsigned)module_id);
+  printf("  Fingerprint: 0x%08X\n", (unsigned)table_fingerprint);
   return 0;
 }
 
 static int write_loxctab_from_emit(const char *output,
+                                   const char *module_name,
+                                   uint8_t module_id,
+                                   uint8_t module_version,
                                    const symbol_rec_t *symbols,
                                    size_t symbol_count,
                                    const uint32_t byte_to_symbol[256],
                                    const dict_emit_t *dict_emit,
                                    size_t dict_count,
-                                   uint8_t strategy_id,
-                                   uint8_t base_size,
-                                   uint8_t bits_per_level,
-                                   uint16_t level_count) {
+                                   const uint32_t *symbol_to_dict_index,
+                                    uint8_t strategy_id,
+                                    uint8_t base_size,
+                                    uint8_t bits_per_level,
+                                   uint16_t level_count,
+                                   uint32_t *out_table_fingerprint) {
   char tab_path[512];
   snprintf(tab_path, sizeof(tab_path), "%s.loxctab", output);
 
@@ -352,6 +427,7 @@ static int write_loxctab_from_emit(const char *output,
   }
 
   size_t pos = 0;
+  uint32_t table_fingerprint = 0u;
   for (size_t i = 0; i < dict_count; i++) {
     if (dict_emit[i].len > 0) {
       memcpy(dict_data + pos, dict_emit[i].bytes, dict_emit[i].len);
@@ -359,14 +435,30 @@ static int write_loxctab_from_emit(const char *output,
     }
   }
 
+  if (symbol_to_dict_index == NULL) {
+    free(dict_data);
+    free(dict_offsets);
+    free(dict_symbol_ids);
+    return 1;
+  }
+  table_fingerprint =
+      compute_table_fingerprint(byte_to_symbol, symbols, symbol_count,
+                                symbol_to_dict_index, dict_count, dict_data,
+                                dict_offsets, strategy_id, base_size,
+                                bits_per_level, level_count);
+
   printf("\n=== KROK 6: Loxctab File Generation ===\n");
-  int rc = write_loxctab_file(tab_path, symbols, symbol_count, byte_to_symbol,
+  int rc = write_loxctab_file(tab_path, module_name, module_id, module_version,
+                              symbols, symbol_count, byte_to_symbol,
                               dict_symbol_ids, dict_count, dict_data,
-                              dict_offsets, strategy_id, base_size,
+                              dict_offsets, table_fingerprint, strategy_id, base_size,
                               bits_per_level, level_count);
   free(dict_data);
   free(dict_offsets);
   free(dict_symbol_ids);
+  if (rc == 0 && out_table_fingerprint != NULL) {
+    *out_table_fingerprint = table_fingerprint;
+  }
   return rc;
 }
 
@@ -374,6 +466,8 @@ static int generate_c_file_flat(const char *input, size_t data_len,
                                 const char *module_name,
                                 const char *name_upper,
                                 const char *generated_at,
+                                uint8_t module_id,
+                                uint32_t table_fingerprint,
                                 const symbol_rec_t *symbols,
                                 size_t symbol_count,
                                 const dict_emit_t *dict_emit,
@@ -386,6 +480,8 @@ static int generate_c_file_hier(const char *input, size_t data_len,
                                 const char *module_name,
                                 const char *name_upper,
                                 const char *generated_at,
+                                uint8_t module_id,
+                                uint32_t table_fingerprint,
                                 loxc_strategy_t strategy,
                                 const symbol_rec_t *symbols,
                                 size_t symbol_count,
@@ -450,6 +546,8 @@ static int generate_c_file_hier(const char *input, size_t data_len,
                                 const char *module_name,
                                 const char *name_upper,
                                 const char *generated_at,
+                                uint8_t module_id,
+                                uint32_t table_fingerprint,
                                 loxc_strategy_t strategy,
                                 const symbol_rec_t *symbols,
                                 size_t symbol_count,
@@ -459,6 +557,7 @@ static int generate_c_file_hier(const char *input, size_t data_len,
                                 const uint32_t *symbol_to_dict_index,
                                 const char *func_prefix,
                                 const loxc_hier_t *hier) {
+  (void)module_id;
   (void)hier;
 
   char source_path[512];
@@ -501,6 +600,8 @@ static int generate_c_file_hier(const char *input, size_t data_len,
   fprintf(cfile, "#define MOD_%s_BITS_PER_LEVEL %uu\n", name_upper, (unsigned)bits_per_level);
   fprintf(cfile, "#define MOD_%s_DICT_COUNT     %zuu\n", name_upper, dict_count);
   fprintf(cfile, "#define MOD_%s_LEVELS         %uu\n", name_upper, (unsigned)(hier ? hier->level_count : 0u));
+  fprintf(cfile, "#define MOD_%s_FINGERPRINT    0x%08Xu\n", name_upper,
+          (unsigned)table_fingerprint);
   fprintf(cfile, "\n");
 
   fprintf(cfile,
@@ -698,6 +799,7 @@ static int generate_c_file_hier(const char *input, size_t data_len,
           "  h.payload_len = 0;\n"
           "  h.level_count = (uint16_t)MOD_%s_LEVELS;\n"
           "  h.uncompressed_len = (uint32_t)in_len;\n"
+          "  h.table_fingerprint = MOD_%s_FINGERPRINT;\n"
           "  h.crc32 = 0;\n"
           "\n"
           "  const size_t header_bytes = loxc_header_size(&h);\n"
@@ -726,7 +828,8 @@ static int generate_c_file_hier(const char *input, size_t data_len,
           "  *out_len = total;\n"
           "  return LOXC_OK;\n"
           "}\n\n",
-          module_name, name_upper, name_upper, name_upper, func_prefix);
+          module_name, name_upper, name_upper, name_upper, name_upper,
+          func_prefix);
 
   fprintf(cfile,
           "static int mod_%s_decode_buffer(const uint8_t *in, size_t in_len, uint8_t *out,\n"
@@ -747,6 +850,7 @@ static int generate_c_file_hier(const char *input, size_t data_len,
           "  if (h.flags != 0) return LOXC_ERR_INVALID_MAGIC;\n"
           "  if (h.strategy_id != (uint8_t)LOXC_MOD_%s_STRATEGY) return LOXC_ERR_INVALID_MAGIC;\n"
           "  if (h.level_count != (uint16_t)MOD_%s_LEVELS) return LOXC_ERR_INVALID_MAGIC;\n"
+          "  if (h.table_fingerprint != MOD_%s_FINGERPRINT) return LOXC_ERR_INVALID_MAGIC;\n"
           "\n"
           "  const size_t header_bytes = loxc_header_size(&h);\n"
           "  if (in_len < header_bytes) return LOXC_ERR_TRUNCATED;\n"
@@ -769,19 +873,23 @@ static int generate_c_file_hier(const char *input, size_t data_len,
           "  *out_len = cap;\n"
           "  return LOXC_OK;\n"
           "}\n\n",
-          module_name, name_upper, name_upper, name_upper, func_prefix);
+          module_name, name_upper, name_upper, name_upper, name_upper,
+          func_prefix);
 
   fprintf(cfile,
           "static const loxc_module_t mod_%s_module = {\n"
           "  .name = \"%s\",\n"
+          "  .table_name = \"%s\",\n"
           "  .module_id = LOXC_MOD_%s_ID,\n"
           "  .version = LOXC_MOD_%s_VERSION,\n"
           "  .strategy_id = LOXC_MOD_%s_STRATEGY,\n"
+          "  .level_count = MOD_%s_LEVELS,\n"
+          "  .table_fingerprint = MOD_%s_FINGERPRINT,\n"
           "  .encode = mod_%s_encode_buffer,\n"
           "  .decode = mod_%s_decode_buffer,\n"
           "};\n\n",
-          module_name, module_name, name_upper, name_upper, name_upper,
-          module_name, module_name);
+          module_name, module_name, module_name, name_upper, name_upper,
+          name_upper, name_upper, name_upper, module_name, module_name);
 
   fprintf(cfile,
           "int %s_register(void) {\n"
@@ -800,6 +908,8 @@ static int generate_c_file_flat(const char *input, size_t data_len,
                                 const char *module_name,
                                 const char *name_upper,
                                 const char *generated_at,
+                                uint8_t module_id,
+                                uint32_t table_fingerprint,
                                 const symbol_rec_t *symbols,
                                 size_t symbol_count,
                                 const dict_emit_t *dict_emit,
@@ -807,6 +917,7 @@ static int generate_c_file_flat(const char *input, size_t data_len,
                                 const uint32_t byte_to_symbol[256],
                                 const uint32_t *symbol_to_dict_index,
                                 const char *func_prefix) {
+  (void)module_id;
   (void)symbol_to_dict_index;
 
   const size_t dict_emit_count = (dict_count > 0) ? dict_count : 1;
@@ -850,6 +961,8 @@ static int generate_c_file_flat(const char *input, size_t data_len,
           module_name, module_name);
 
   fprintf(cfile, "enum { MOD_%s_SYMBOL_BITS = %u };\n", name_upper, sym_bits);
+  fprintf(cfile, "#define MOD_%s_FINGERPRINT    0x%08Xu\n", name_upper,
+          (unsigned)table_fingerprint);
   fprintf(cfile, "\n");
 
   fprintf(cfile,
@@ -991,14 +1104,17 @@ static int generate_c_file_flat(const char *input, size_t data_len,
   fprintf(cfile,
           "static const loxc_module_t mod_%s_module = {\n"
           "  .name = \"%s\",\n"
+          "  .table_name = \"%s\",\n"
           "  .module_id = LOXC_MOD_%s_ID,\n"
           "  .version = LOXC_MOD_%s_VERSION,\n"
           "  .strategy_id = LOXC_MOD_%s_STRATEGY,\n"
+          "  .level_count = 0u,\n"
+          "  .table_fingerprint = MOD_%s_FINGERPRINT,\n"
           "  .encode = mod_%s_encode_buffer,\n"
           "  .decode = mod_%s_decode_buffer,\n"
           "};\n\n",
-          module_name, module_name, name_upper, name_upper, name_upper,
-          module_name, module_name);
+          module_name, module_name, module_name, name_upper, name_upper,
+          name_upper, name_upper, module_name, module_name);
 
   fprintf(cfile,
           "static int mod_%s_encode_buffer(const uint8_t *in, size_t in_len, uint8_t *out,\n"
@@ -1016,6 +1132,7 @@ static int generate_c_file_flat(const char *input, size_t data_len,
           "  h.payload_len = 0;\n"
           "  h.level_count = 0;\n"
           "  h.uncompressed_len = (uint32_t)in_len;\n"
+          "  h.table_fingerprint = MOD_%s_FINGERPRINT;\n"
           "  h.crc32 = 0;\n"
           "\n"
           "  const size_t header_bytes = loxc_header_size(&h);\n"
@@ -1044,7 +1161,7 @@ static int generate_c_file_flat(const char *input, size_t data_len,
           "  *out_len = total;\n"
           "  return LOXC_OK;\n"
           "}\n\n",
-          module_name, name_upper, name_upper, func_prefix);
+          module_name, name_upper, name_upper, name_upper, func_prefix);
 
   fprintf(cfile,
           "static int mod_%s_decode_buffer(const uint8_t *in, size_t in_len, uint8_t *out,\n"
@@ -1064,6 +1181,7 @@ static int generate_c_file_flat(const char *input, size_t data_len,
           "  if (h.version != LOXC_HEADER_VERSION_V2) return LOXC_ERR_INVALID_MAGIC;\n"
           "  if (h.flags != 0) return LOXC_ERR_INVALID_MAGIC;\n"
           "  if (h.strategy_id != (uint8_t)LOXC_MOD_%s_STRATEGY) return LOXC_ERR_INVALID_MAGIC;\n"
+          "  if (h.table_fingerprint != MOD_%s_FINGERPRINT) return LOXC_ERR_INVALID_MAGIC;\n"
           "\n"
           "  const size_t header_bytes = loxc_header_size(&h);\n"
           "  if (in_len < header_bytes) return LOXC_ERR_TRUNCATED;\n"
@@ -1086,7 +1204,7 @@ static int generate_c_file_flat(const char *input, size_t data_len,
           "  *out_len = cap;\n"
           "  return LOXC_OK;\n"
           "}\n\n",
-          module_name, name_upper, name_upper, func_prefix);
+          module_name, name_upper, name_upper, name_upper, func_prefix);
 
   fprintf(cfile,
           "int %s_register(void) {\n"
@@ -1895,15 +2013,19 @@ int main(int argc, char *argv[]) {
       const uint32_t sid = dict_emit[i].symbol_id;
       if (sid < symbol_count) symbol_to_dict_index[sid] = i;
     }
-
-    gen_rc = generate_c_file_flat(input_desc, data_len, module_name, name_upper,
-                                  generated_at, symbols, symbol_count,
-                                  dict_emit, dict_count, byte_to_symbol,
-                                  symbol_to_dict_index, func_prefix);
+    uint32_t table_fingerprint = 0u;
+    gen_rc = write_loxctab_from_emit(output, module_name, module_id, 2u,
+                                     symbols, symbol_count,
+                                     byte_to_symbol, dict_emit, dict_count,
+                                     symbol_to_dict_index,
+                                     (uint8_t)result.strategy, 0u, 0u, 0u,
+                                     &table_fingerprint);
     if (gen_rc == 0) {
-      gen_rc = write_loxctab_from_emit(output, symbols, symbol_count,
-                                       byte_to_symbol, dict_emit, dict_count,
-                                       (uint8_t)result.strategy, 0u, 0u, 0u);
+      gen_rc = generate_c_file_flat(input_desc, data_len, module_name, name_upper,
+                                    generated_at, module_id, table_fingerprint,
+                                    symbols, symbol_count,
+                                    dict_emit, dict_count, byte_to_symbol,
+                                    symbol_to_dict_index, func_prefix);
     }
 
     free(symbol_to_dict_index);
@@ -1966,22 +2088,27 @@ int main(int argc, char *argv[]) {
       if (sid < symbol_count) symbol_to_dict_index[sid] = i;
     }
 
-    gen_rc = generate_c_file_hier(input_desc, data_len, module_name, name_upper,
-                                  generated_at, result.strategy,
-                                  symbols, symbol_count,
-                                  dict_emit, dict_count,
-                                  byte_to_symbol, symbol_to_dict_index,
-                                  func_prefix, &hier);
+    const uint8_t base_size =
+        (result.strategy == LOXC_STRATEGY_HIERARCHICAL_8) ? 8u : 4u;
+    const uint8_t bits_per_level =
+        (result.strategy == LOXC_STRATEGY_HIERARCHICAL_8) ? 6u : 4u;
+    uint32_t table_fingerprint = 0u;
+    gen_rc = write_loxctab_from_emit(output, module_name, module_id, 2u,
+                                     symbols, symbol_count,
+                                     byte_to_symbol, dict_emit, dict_count,
+                                     symbol_to_dict_index,
+                                     (uint8_t)result.strategy, base_size,
+                                     bits_per_level,
+                                     (uint16_t)hier.level_count,
+                                     &table_fingerprint);
     if (gen_rc == 0) {
-      const uint8_t base_size =
-          (result.strategy == LOXC_STRATEGY_HIERARCHICAL_8) ? 8u : 4u;
-      const uint8_t bits_per_level =
-          (result.strategy == LOXC_STRATEGY_HIERARCHICAL_8) ? 6u : 4u;
-      gen_rc = write_loxctab_from_emit(output, symbols, symbol_count,
-                                       byte_to_symbol, dict_emit, dict_count,
-                                       (uint8_t)result.strategy, base_size,
-                                       bits_per_level,
-                                       (uint16_t)hier.level_count);
+      gen_rc = generate_c_file_hier(input_desc, data_len, module_name, name_upper,
+                                    generated_at, module_id, table_fingerprint,
+                                    result.strategy,
+                                    symbols, symbol_count,
+                                    dict_emit, dict_count,
+                                    byte_to_symbol, symbol_to_dict_index,
+                                    func_prefix, &hier);
     }
 
     free(symbol_to_dict_index);

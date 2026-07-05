@@ -26,7 +26,8 @@ enum {
   LOXC_HEADER_OFFSET_PAYLOAD_LEN = 7u,
   LOXC_HEADER_OFFSET_LEVEL_COUNT = 9u,
   LOXC_HEADER_OFFSET_UNCOMPRESSED_LEN = 11u,
-  LOXC_HEADER_SIZE_V2 = 15u,
+  LOXC_HEADER_OFFSET_TABLE_FINGERPRINT = 15u,
+  LOXC_HEADER_SIZE_V2 = 19u,
   LOXC_FLAG_CRC = 1u << 7,   /* legacy/unsupported in v2: rejected */
   LOXC_FLAG_DICT = 1u << 6   /* legacy/unsupported in v2: rejected */
 };
@@ -47,6 +48,7 @@ typedef struct {
   uint16_t payload_len;       /* exact payload bytes; 0xFFFF is read-only legacy-to-EOF */
   uint16_t level_count;       /* FLAT=0, HIER*=positive */
   uint32_t uncompressed_len;  /* exact decoded output length */
+  uint32_t table_fingerprint; /* exact table identity for payload binding */
   uint32_t crc32;             /* unsupported in v2; must not be serialized */
 } loxc_header_t;
 

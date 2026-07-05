@@ -8,9 +8,12 @@
 
 typedef struct loxc_module {
   const char *name;
+  const char *table_name;
   uint8_t module_id;
   uint8_t version;
   uint8_t strategy_id;
+  uint16_t level_count;
+  uint32_t table_fingerprint;
 
   int (*encode)(const uint8_t *in, size_t in_len, uint8_t *out, size_t out_cap,
                 size_t *out_len);

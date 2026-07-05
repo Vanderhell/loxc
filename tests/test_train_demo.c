@@ -181,6 +181,14 @@ int main(void) {
   expect_roundtrip_ok("demo", SAMPLE);
   puts("test_train_demo: PASS (generated registry round-trip)");
 
+  expect_roundtrip_contract("demo");
+  puts("test_train_demo: PASS (generated decode contract)");
+
+  expect_nonzero_padding_rejected("demo");
+  puts("test_train_demo: PASS (generated non-zero padding rejection)");
+
+  assert(loxc_module_unregister("demo") == LOXC_OK);
+
   loxc_module_t *runtime_module =
       loxc_module_load_from_file(runtime_table);
   assert(runtime_module != NULL);
@@ -190,14 +198,8 @@ int main(void) {
   expect_roundtrip_ok("runtime_train_demo", SAMPLE);
   puts("test_train_demo: PASS (runtime-loaded round-trip)");
 
-  expect_roundtrip_contract("demo");
-  puts("test_train_demo: PASS (generated decode contract)");
-
   expect_roundtrip_contract("runtime_train_demo");
   puts("test_train_demo: PASS (runtime-loaded decode contract)");
-
-  expect_nonzero_padding_rejected("demo");
-  puts("test_train_demo: PASS (generated non-zero padding rejection)");
 
   expect_nonzero_padding_rejected("runtime_train_demo");
   puts("test_train_demo: PASS (runtime-loaded non-zero padding rejection)");

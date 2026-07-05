@@ -38,6 +38,34 @@ static void write_u32_le(uint8_t *p, uint32_t v) {
   p[3] = (uint8_t)((v >> 24u) & 0xFFu);
 }
 
+static void init_test_table_header(uint8_t *buf,
+                                   uint8_t module_id,
+                                   uint8_t strategy_id,
+                                   uint8_t base_size,
+                                   uint8_t bits_per_level,
+                                   uint16_t level_count,
+                                   uint32_t symbol_count,
+                                   uint32_t dict_count,
+                                   uint32_t data_size,
+                                   uint32_t table_fingerprint,
+                                   const char *table_name) {
+  memset(buf, 0, LOXC_TAB_HEADER_SIZE);
+  memcpy(buf, LOXC_TAB_MAGIC, 4u);
+  buf[4] = (uint8_t)LOXC_TAB_VERSION;
+  buf[5] = 2u;
+  buf[6] = module_id;
+  buf[7] = strategy_id;
+  buf[8] = base_size;
+  buf[9] = bits_per_level;
+  write_u16_le(buf + 10u, level_count);
+  write_u32_le(buf + 12u, symbol_count);
+  write_u32_le(buf + 16u, dict_count);
+  write_u32_le(buf + 20u, data_size);
+  write_u32_le(buf + 24u, table_fingerprint);
+  buf[28] = (uint8_t)strlen(table_name);
+  memcpy(buf + 29u, table_name, strlen(table_name));
+}
+
 static size_t build_minimal_flat_table(uint8_t *buf, size_t cap) {
   const uint32_t symbol_count = 1u;
   const uint32_t dict_count = 0u;
@@ -48,15 +76,9 @@ static size_t build_minimal_flat_table(uint8_t *buf, size_t cap) {
 
   assert(cap >= total_size);
   memset(buf, 0, total_size);
-  memcpy(buf, LOXC_TAB_MAGIC, 4u);
-  buf[4] = (uint8_t)LOXC_TAB_VERSION;
-  buf[5] = (uint8_t)LOXC_STRATEGY_FLAT_FIXED_WIDTH;
-  buf[6] = 0u;
-  buf[7] = 0u;
-  write_u16_le(buf + 8u, 0u);
-  write_u32_le(buf + 12u, symbol_count);
-  write_u32_le(buf + 16u, dict_count);
-  write_u32_le(buf + 20u, data_size);
+  init_test_table_header(buf, 33u, (uint8_t)LOXC_STRATEGY_FLAT_FIXED_WIDTH,
+                         0u, 0u, 0u, symbol_count, dict_count, data_size,
+                         0x11111111u, "flat_a");
 
   pos = LOXC_TAB_HEADER_SIZE;
   for (size_t i = 0u; i < 256u; i++) {
@@ -92,15 +114,9 @@ static size_t build_minimal_dict_table(uint8_t *buf, size_t cap) {
 
   assert(cap >= total_size);
   memset(buf, 0, total_size);
-  memcpy(buf, LOXC_TAB_MAGIC, 4u);
-  buf[4] = (uint8_t)LOXC_TAB_VERSION;
-  buf[5] = (uint8_t)LOXC_STRATEGY_FLAT_FIXED_WIDTH;
-  buf[6] = 0u;
-  buf[7] = 0u;
-  write_u16_le(buf + 8u, 0u);
-  write_u32_le(buf + 12u, symbol_count);
-  write_u32_le(buf + 16u, dict_count);
-  write_u32_le(buf + 20u, data_size);
+  init_test_table_header(buf, 34u, (uint8_t)LOXC_STRATEGY_FLAT_FIXED_WIDTH,
+                         0u, 0u, 0u, symbol_count, dict_count, data_size,
+                         0x22222222u, "dict_ab");
 
   pos = LOXC_TAB_HEADER_SIZE;
   for (size_t i = 0u; i < 256u; i++) {
@@ -257,19 +273,19 @@ static void test_hostile_loader_inputs(void) {
   expect_load_memory_rc(mutated, len, LOXC_ERR_INVALID_MAGIC);
 
   memcpy(mutated, table, len);
-  mutated[4] = 2u;
+  mutated[4] = 3u;
   expect_load_memory_rc(mutated, len, LOXC_ERR_INVALID_FORMAT);
 
   memcpy(mutated, table, len);
-  mutated[5] = 99u;
+  mutated[7] = 99u;
   expect_load_memory_rc(mutated, len, LOXC_ERR_INVALID_FORMAT);
 
   memcpy(mutated, table, len);
-  mutated[6] = 4u;
+  mutated[8] = 4u;
   expect_load_memory_rc(mutated, len, LOXC_ERR_INVALID_FORMAT);
 
   memcpy(mutated, table, len);
-  mutated[10] = 1u;
+  mutated[61] = 1u;
   expect_load_memory_rc(mutated, len, LOXC_ERR_INVALID_FORMAT);
 
   memcpy(mutated, table, len);

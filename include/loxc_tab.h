@@ -4,9 +4,10 @@
 #include "loxc.h"
 
 #define LOXC_TAB_MAGIC "LOXT"  /* 4 bytes */
-#define LOXC_TAB_VERSION 1
-#define LOXC_TAB_HEADER_SIZE 24u
+#define LOXC_TAB_VERSION 2
+#define LOXC_TAB_HEADER_SIZE 64u
 #define LOXC_TAB_TRAILER_SIZE 4u
+#define LOXC_TAB_MAX_NAME_LEN 32u
 
 enum {
   LOXC_TAB_MAX_FILE_SIZE = 16u * 1024u * 1024u,
@@ -24,17 +25,22 @@ enum {
  * All multi-byte integer fields use little-endian serialization. The file
  * format is byte-packed and must not be read or written via C struct layout.
  *
- * Header (24 B):
+ * Header (64 B):
  *   bytes 0-3:   magic "LOXT"
- *   byte 4:      version (=1)
- *   byte 5:      strategy_id
- *   byte 6:      base_size (0/4/8)
- *   byte 7:      bits_per_level (0/4/6)
- *   bytes 8-9:   level_count (u16 LE)
- *   bytes 10-11: reserved
+ *   byte 4:      version (=2)
+ *   byte 5:      module format version
+ *   byte 6:      module_id
+ *   byte 7:      strategy_id
+ *   byte 8:      base_size (0/4/8)
+ *   byte 9:      bits_per_level (0/4/6)
+ *   bytes 10-11: level_count (u16 LE)
  *   bytes 12-15: symbol_count (u32 LE)
  *   bytes 16-19: dict_count (u32 LE)
  *   bytes 20-23: data_size (u32 LE)
+ *   bytes 24-27: table_fingerprint (u32 LE)
+ *   byte 28:     table_name_len (0..32)
+ *   bytes 29-60: table_name bytes, zero-padded
+ *   bytes 61-63: reserved zero
  *
  * Data section (data_size bytes):
  *   byte_to_symbol[256]: 256 x u32 LE = 1024 B

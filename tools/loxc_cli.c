@@ -383,6 +383,7 @@ static int command_info(int argc, char **argv) {
   printf("payload_len: %u\n", (unsigned)h.payload_len);
   printf("level_count: %u\n", (unsigned)h.level_count);
   printf("uncompressed_len: %u\n", (unsigned)h.uncompressed_len);
+  printf("table_fingerprint: 0x%08X\n", (unsigned)h.table_fingerprint);
   printf("crc32: unsupported in v2\n");
   printf("header_bytes: %zu\n", header_bytes);
   printf("file_bytes: %zu\n", input_len);

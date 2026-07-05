@@ -217,6 +217,7 @@ int loxc_plain_encode(const uint8_t *in, size_t in_len, uint8_t *out,
   h.payload_len = (uint16_t)data_bytes;
   h.level_count = 0;
   h.uncompressed_len = (uint32_t)in_len;
+  h.table_fingerprint = 0u;
   h.crc32 = 0;
 
   rc = loxc_header_write(&hw, &h);
