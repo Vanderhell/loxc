@@ -266,6 +266,40 @@ static void test_edge_truncated_stream(void) {
   printf("  ✓ PASS (correctly detected truncation)\n\n");
 }
 
+static void test_reject_duplicate_symbol_ids(void) {
+  loxc_freq_entry_t freqs[3];
+  loxc_hier_t h;
+
+  make_freqs_ordered(freqs, 3);
+  freqs[2].symbol_id = 1u;
+
+  memset(&h, 0xA5, sizeof(h));
+  assert(loxc_hier_build(freqs, 3, LOXC_STRATEGY_HIERARCHICAL_8, &h) ==
+         LOXC_ERR_INVALID_MAGIC);
+  assert(h.pos_to_symbol == NULL);
+  assert(h.symbol_to_pos == NULL);
+  assert(h.symbol_count == 0u);
+  assert(h.level_count == 0u);
+  loxc_hier_free(&h);
+}
+
+static void test_reject_out_of_range_symbol_id(void) {
+  loxc_freq_entry_t freqs[3];
+  loxc_hier_t h;
+
+  make_freqs_ordered(freqs, 3);
+  freqs[2].symbol_id = 9u;
+
+  memset(&h, 0xA5, sizeof(h));
+  assert(loxc_hier_build(freqs, 3, LOXC_STRATEGY_HIERARCHICAL_4, &h) ==
+         LOXC_ERR_INVALID_MAGIC);
+  assert(h.pos_to_symbol == NULL);
+  assert(h.symbol_to_pos == NULL);
+  assert(h.symbol_count == 0u);
+  assert(h.level_count == 0u);
+  loxc_hier_free(&h);
+}
+
 int main(void) {
   printf("=== test_hier: Hierarchical Encoder/Decoder ===\n\n");
 
@@ -275,6 +309,8 @@ int main(void) {
   test_hier4_20_symbols();
   test_edge_symbol_not_in_table();
   test_edge_truncated_stream();
+  test_reject_duplicate_symbol_ids();
+  test_reject_out_of_range_symbol_id();
 
   printf("=== test_hier: PASS (all scenarios) ===\n");
 

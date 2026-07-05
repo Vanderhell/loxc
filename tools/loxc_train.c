@@ -65,7 +65,7 @@ static uint8_t bits_needed_u32(uint32_t n) {
 
 typedef struct {
   size_t idx;
-  int gain;
+  int64_t gain;
   size_t len;
 } dict_candidate_t;
 
@@ -209,11 +209,7 @@ static int cmp_dict_emit(const void *a, const void *b) {
   const dict_emit_t *db = (const dict_emit_t *)b;
   if (da->len > db->len) return -1;
   if (da->len < db->len) return 1;
-  const size_t n = da->len;
-  if (n == 0) return 0;
-  const int rc = memcmp(da->bytes, db->bytes, n);
-  if (rc != 0) return rc;
-  return 0;
+  return cmp_symbol_bytes(da->bytes, da->len, db->bytes, db->len);
 }
 
 static int cmp_symbol_bytes(const uint8_t *a, size_t a_len,
@@ -1852,11 +1848,11 @@ static int analyze_freqs(const uint8_t *data, size_t data_len,
       printf("  ID | Entry          | Count | Gain (bits)\n");
       printf("-----+----------------+-------+------------\n");
       for (size_t i = 0; i < dict.count && i < 20; i++) {
-        printf("%4zu | %-14.*s | %5llu | %10d\n", i,
+        printf("%4zu | %-14.*s | %5llu | %10lld\n", i,
                (int)(dict_sorted[i].word_len < 14 ? dict_sorted[i].word_len
                                                     : 14),
                dict_sorted[i].word, (unsigned long long)dict_sorted[i].count,
-               dict_sorted[i].gain);
+               (long long)dict_sorted[i].gain);
       }
 
       if (dict.count > 20) {
@@ -1866,11 +1862,11 @@ static int analyze_freqs(const uint8_t *data, size_t data_len,
         printf("-----+----------------+-------+------------\n");
         size_t start = dict.count > 20 ? dict.count - 20 : 0;
         for (size_t i = start; i < dict.count; i++) {
-          printf("%4zu | %-14.*s | %5llu | %10d\n", i,
+          printf("%4zu | %-14.*s | %5llu | %10lld\n", i,
                  (int)(dict_sorted[i].word_len < 14 ? dict_sorted[i].word_len
                                                       : 14),
                  dict_sorted[i].word, (unsigned long long)dict_sorted[i].count,
-                 dict_sorted[i].gain);
+                 (long long)dict_sorted[i].gain);
         }
       }
 

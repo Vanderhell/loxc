@@ -105,6 +105,62 @@ static void test_encode_decode_roundtrip(void) {
   loxc_dict_free(&d);
 }
 
+static void test_decode_duplicate_ref_rejected(void) {
+  const uint8_t encoded[] = {
+      0x01, 0x01, 0x00, 0x02,
+      0x00, 0x00, 0x03, 'a', 'b', 'c',
+      0x00, 0x00, 0x03, 'd', 'e', 'f'
+  };
+  loxc_dict_t d;
+  loxc_reader_t r;
+
+  memset(&d, 0, sizeof(d));
+  assert(loxc_reader_init(&r, encoded, sizeof(encoded)) == LOXC_OK);
+  assert(loxc_dict_decode(&r, 0x01, &d) == LOXC_ERR_INVALID_MAGIC);
+  assert(d.entries == NULL);
+  assert(d.count == 0u);
+  loxc_dict_free(&d);
+}
+
+static void test_decode_duplicate_word_rejected(void) {
+  const uint8_t encoded[] = {
+      0x01, 0x01, 0x00, 0x02,
+      0x00, 0x00, 0x03, 'a', 'b', 'c',
+      0x00, 0x01, 0x03, 'a', 'b', 'c'
+  };
+  loxc_dict_t d;
+  loxc_reader_t r;
+
+  memset(&d, 0, sizeof(d));
+  assert(loxc_reader_init(&r, encoded, sizeof(encoded)) == LOXC_OK);
+  assert(loxc_dict_decode(&r, 0x01, &d) == LOXC_ERR_INVALID_MAGIC);
+  assert(d.entries == NULL);
+  assert(d.count == 0u);
+  loxc_dict_free(&d);
+}
+
+static void test_encode_invalid_ref_rejected(void) {
+  char word[] = "alpha";
+  loxc_dict_entry_t entry;
+  loxc_dict_t d;
+  uint8_t out[64];
+  loxc_writer_t w;
+
+  memset(&entry, 0, sizeof(entry));
+  memset(&d, 0, sizeof(d));
+  entry.word = word;
+  entry.word_len = strlen(word);
+  entry.count = 4u;
+  entry.gain = 1;
+  entry.ref_id = 256u;
+  d.entries = &entry;
+  d.count = 1u;
+  d.ref_bytes = 1u;
+
+  assert(loxc_writer_init(&w, out, sizeof(out)) == LOXC_OK);
+  assert(loxc_dict_encode(&d, 0x01, &w) == LOXC_ERR_INVALID_FORMAT);
+}
+
 int main(void) {
   test_analyze_repeated_long_word();
   puts("test_dict: PASS (repeated long word)");
@@ -117,6 +173,15 @@ int main(void) {
 
   test_encode_decode_roundtrip();
   puts("test_dict: PASS (encode/decode)");
+
+  test_decode_duplicate_ref_rejected();
+  puts("test_dict: PASS (duplicate ref rejected)");
+
+  test_decode_duplicate_word_rejected();
+  puts("test_dict: PASS (duplicate word rejected)");
+
+  test_encode_invalid_ref_rejected();
+  puts("test_dict: PASS (invalid ref rejected)");
 
   puts("test_dict: PASS");
   return 0;

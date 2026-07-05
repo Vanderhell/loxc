@@ -4,6 +4,13 @@
 
 #include "loxc_hier.h"
 
+static int loxc__checked_mul_size(size_t a, size_t b, size_t *out) {
+  if (out == NULL) return LOXC_ERR_NULL;
+  if (a != 0u && b > SIZE_MAX / a) return LOXC_ERR_OVERFLOW;
+  *out = a * b;
+  return LOXC_OK;
+}
+
 int loxc_hier_build(
     const loxc_freq_entry_t *freqs,
     size_t n,
@@ -11,15 +18,17 @@ int loxc_hier_build(
     loxc_hier_t *out
 ) {
   loxc_strategy_desc_t desc;
+  size_t alloc_size = 0u;
+  int rc = LOXC_OK;
 
   if (freqs == NULL || out == NULL) return LOXC_ERR_NULL;
   if (n == 0) return LOXC_ERR_NULL;
+  memset(out, 0, sizeof(*out));
+  if (n > (size_t)UINT32_MAX) return LOXC_ERR_OVERFLOW;
   if (loxc_strategy_describe(strategy, &desc) != LOXC_OK ||
       desc.direct_slots == 0u) {
     return LOXC_ERR_INVALID_MAGIC;
   }
-
-  memset(out, 0, sizeof(*out));
   out->strategy = strategy;
   out->direct_slots = desc.direct_slots;
   out->bits_per_level = desc.bits_per_level;
@@ -28,20 +37,29 @@ int loxc_hier_build(
 
   out->symbol_count = (uint32_t)n;
   if (loxc_strategy_level_count(strategy, n, &out->level_count) != LOXC_OK) {
-    return LOXC_ERR_OVERFLOW;
+    rc = LOXC_ERR_OVERFLOW;
+    goto fail;
+  }
+  if (out->level_count == 0u) {
+    rc = LOXC_ERR_INVALID_MAGIC;
+    goto fail;
   }
 
   /* Allocate pos_to_symbol: [0..n-1] maps rank to symbol_id */
-  out->pos_to_symbol = (uint32_t *)malloc(n * sizeof(uint32_t));
-  if (out->pos_to_symbol == NULL) return LOXC_ERR_OVERFLOW;
+  rc = loxc__checked_mul_size(n, sizeof(uint32_t), &alloc_size);
+  if (rc != LOXC_OK) goto fail;
+  out->pos_to_symbol = (uint32_t *)malloc(alloc_size);
+  if (out->pos_to_symbol == NULL) {
+    rc = LOXC_ERR_OVERFLOW;
+    goto fail;
+  }
 
   /* Allocate symbol_to_pos: [0..n-1] maps symbol_id to rank
    * Initialize to UINT32_MAX (not in table) */
-  out->symbol_to_pos = (uint32_t *)malloc(n * sizeof(uint32_t));
+  out->symbol_to_pos = (uint32_t *)malloc(alloc_size);
   if (out->symbol_to_pos == NULL) {
-    free(out->pos_to_symbol);
-    out->pos_to_symbol = NULL;
-    return LOXC_ERR_OVERFLOW;
+    rc = LOXC_ERR_OVERFLOW;
+    goto fail;
   }
 
   for (uint32_t i = 0; i < (uint32_t)n; i++) {
@@ -51,18 +69,23 @@ int loxc_hier_build(
   /* Populate both tables from freqs array */
   for (size_t i = 0; i < n; i++) {
     uint32_t sid = freqs[i].symbol_id;
-    out->pos_to_symbol[i] = sid;
     if (sid >= (uint32_t)n) {
-      free(out->pos_to_symbol);
-      free(out->symbol_to_pos);
-      out->pos_to_symbol = NULL;
-      out->symbol_to_pos = NULL;
-      return LOXC_ERR_INVALID_MAGIC;
+      rc = LOXC_ERR_INVALID_MAGIC;
+      goto fail;
     }
+    if (out->symbol_to_pos[sid] != UINT32_MAX) {
+      rc = LOXC_ERR_INVALID_MAGIC;
+      goto fail;
+    }
+    out->pos_to_symbol[i] = sid;
     out->symbol_to_pos[sid] = (uint32_t)i;
   }
 
   return LOXC_OK;
+
+fail:
+  loxc_hier_free(out);
+  return rc;
 }
 
 int loxc_hier_encode(

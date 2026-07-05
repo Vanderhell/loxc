@@ -10,7 +10,7 @@ typedef struct {
   char *word;
   size_t word_len;
   uint32_t count;
-  int32_t gain; /* bits */
+  int64_t gain; /* bits */
   uint16_t ref_id;
 } loxc_dict_entry_t;
 
@@ -29,4 +29,3 @@ int loxc_dict_decode(loxc_reader_t *r, uint8_t module_id, loxc_dict_t *dict);
 void loxc_dict_free(loxc_dict_t *dict);
 
 #endif /* LOXC_DICT_H */
-

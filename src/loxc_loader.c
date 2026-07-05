@@ -465,6 +465,41 @@ static uint8_t bits_needed_u32(uint32_t n) {
   return bits;
 }
 
+static int loxc__find_dict_match(const loxc_loaded_module_ctx_t *ctx,
+                                 const uint8_t *text,
+                                 size_t text_len,
+                                 size_t pos,
+                                 uint32_t *out_sym_id,
+                                 size_t *out_consumed) {
+  if (ctx == NULL || text == NULL || out_sym_id == NULL || out_consumed == NULL) {
+    return LOXC_ERR_NULL;
+  }
+
+  /* Dictionary entries are emitted by the trainer in deterministic order:
+   * decreasing length, then bytewise ascending. The first match is therefore
+   * the canonical longest-prefix choice for a fixed table. */
+  for (uint32_t d = 0; d < ctx->dict_count; d++) {
+    const uint32_t off = ctx->dict_offsets[d];
+    const uint32_t dlen = ctx->dict_offsets[d + 1u] - off;
+    if (dlen == 0u) continue;
+    if (pos + (size_t)dlen > text_len) continue;
+    if (memcmp(text + pos, ctx->dict_data + off, (size_t)dlen) != 0) continue;
+
+    for (uint32_t s = 0; s < ctx->symbol_count; s++) {
+      if (ctx->symbols[s].type == 1u && ctx->symbols[s].byte_or_idx == d) {
+        *out_sym_id = s;
+        *out_consumed = (size_t)dlen;
+        return LOXC_OK;
+      }
+    }
+    return LOXC_ERR_INVALID_FORMAT;
+  }
+
+  *out_sym_id = 0xFFFFFFFFu;
+  *out_consumed = 1u;
+  return LOXC_OK;
+}
+
 static int loxc_generic_encode(const char *text, size_t text_len,
                                loxc_writer_t *w,
                                const loxc_loaded_module_ctx_t *ctx) {
@@ -475,36 +510,20 @@ static int loxc_generic_encode(const char *text, size_t text_len,
   while (i < text_len) {
     uint32_t sym_id = 0xFFFFFFFFu;
     size_t consumed = 1u;
-
-    for (uint32_t d = 0; d < ctx->dict_count; d++) {
-      const uint32_t off = ctx->dict_offsets[d];
-      const uint32_t dlen = ctx->dict_offsets[d + 1u] - off;
-      if (dlen == 0) continue;
-      if (i + (size_t)dlen <= text_len &&
-          memcmp((const uint8_t *)text + i, ctx->dict_data + off,
-                 (size_t)dlen) == 0) {
-        for (uint32_t s = 0; s < ctx->symbol_count; s++) {
-          if (ctx->symbols[s].type == 1u &&
-              ctx->symbols[s].byte_or_idx == d) {
-            sym_id = s;
-            break;
-          }
-        }
-        consumed = (size_t)dlen;
-        break;
-      }
-    }
+    int rc = loxc__find_dict_match(ctx, (const uint8_t *)text, text_len, i,
+                                   &sym_id, &consumed);
+    if (rc != LOXC_OK) return rc;
 
     if (sym_id == 0xFFFFFFFFu) {
       sym_id = ctx->byte_to_symbol[(uint8_t)text[i]];
       if (sym_id == 0xFFFFFFFFu) {
         if (ctx->strategy_id == LOXC_STRATEGY_FLAT_FIXED_WIDTH) {
-          int rc = loxc_write_bits(w, ctx->symbol_count, flat_bits);
+          rc = loxc_write_bits(w, ctx->symbol_count, flat_bits);
           if (rc != LOXC_OK) return rc;
           rc = loxc_write_bits(w, (uint8_t)text[i], 8u);
           if (rc != LOXC_OK) return rc;
         } else {
-          int rc = loxc_write_bits(w, ctx->raw_pos, ctx->bits_per_level);
+          rc = loxc_write_bits(w, ctx->raw_pos, ctx->bits_per_level);
           if (rc != LOXC_OK) return rc;
           rc = loxc_write_bits(w, (uint8_t)text[i], 8u);
           if (rc != LOXC_OK) return rc;
@@ -516,7 +535,7 @@ static int loxc_generic_encode(const char *text, size_t text_len,
     }
 
     if (ctx->strategy_id == LOXC_STRATEGY_FLAT_FIXED_WIDTH) {
-      int rc = loxc_write_bits(w, sym_id, flat_bits);
+      rc = loxc_write_bits(w, sym_id, flat_bits);
       if (rc != LOXC_OK) return rc;
     } else {
       if (ctx->direct_slots == 0 || ctx->bits_per_level == 0) {
@@ -525,11 +544,11 @@ static int loxc_generic_encode(const char *text, size_t text_len,
       const uint32_t level = sym_id / (uint32_t)ctx->direct_slots;
       const uint32_t pos = sym_id % (uint32_t)ctx->direct_slots;
       for (uint32_t l = 0; l < level; l++) {
-        int rc = loxc_write_bits(w, (uint32_t)ctx->continue_pos,
-                                 ctx->bits_per_level);
+        rc = loxc_write_bits(w, (uint32_t)ctx->continue_pos,
+                             ctx->bits_per_level);
         if (rc != LOXC_OK) return rc;
       }
-      int rc = loxc_write_bits(w, pos, ctx->bits_per_level);
+      rc = loxc_write_bits(w, pos, ctx->bits_per_level);
       if (rc != LOXC_OK) return rc;
     }
 
