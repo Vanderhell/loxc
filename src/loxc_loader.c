@@ -2,6 +2,7 @@
 
 #include "loxc_base.h"
 #include "loxc_stream.h"
+#include "loxc_strategy.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -108,44 +109,17 @@ static int loxc__validate_strategy_config(uint8_t strategy_id,
                                           uint8_t *out_direct_slots,
                                           uint8_t *out_raw_pos,
                                           uint8_t *out_continue_pos) {
-  uint8_t direct_slots = 0u;
-  uint8_t raw_pos = 0u;
-  uint8_t continue_pos = 0u;
-
-  switch (strategy_id) {
-    case LOXC_STRATEGY_FLAT_FIXED_WIDTH:
-      if (base_size != 0u || bits_per_level != 0u || level_count != 0u) {
-        return LOXC_ERR_INVALID_FORMAT;
-      }
-      direct_slots = 0u;
-      raw_pos = 0u;
-      continue_pos = 0u;
-      break;
-    case LOXC_STRATEGY_HIERARCHICAL_4:
-      if (base_size != 4u || bits_per_level != 4u || level_count == 0u ||
-          level_count > LOXC_TAB_MAX_LEVEL_COUNT) {
-        return LOXC_ERR_INVALID_FORMAT;
-      }
-      direct_slots = 14u;
-      raw_pos = 14u;
-      continue_pos = 15u;
-      break;
-    case LOXC_STRATEGY_HIERARCHICAL_8:
-      if (base_size != 8u || bits_per_level != 6u || level_count == 0u ||
-          level_count > LOXC_TAB_MAX_LEVEL_COUNT) {
-        return LOXC_ERR_INVALID_FORMAT;
-      }
-      direct_slots = 55u;
-      raw_pos = 55u;
-      continue_pos = 56u;
-      break;
-    default:
-      return LOXC_ERR_INVALID_FORMAT;
+  loxc_strategy_desc_t desc;
+  if (level_count > LOXC_TAB_MAX_LEVEL_COUNT) return LOXC_ERR_INVALID_FORMAT;
+  if (loxc_strategy_validate_layout((loxc_strategy_t)strategy_id, base_size,
+                                    bits_per_level, level_count,
+                                    &desc) != LOXC_OK) {
+    return LOXC_ERR_INVALID_FORMAT;
   }
 
-  if (out_direct_slots != NULL) *out_direct_slots = direct_slots;
-  if (out_raw_pos != NULL) *out_raw_pos = raw_pos;
-  if (out_continue_pos != NULL) *out_continue_pos = continue_pos;
+  if (out_direct_slots != NULL) *out_direct_slots = desc.direct_slots;
+  if (out_raw_pos != NULL) *out_raw_pos = desc.raw_pos;
+  if (out_continue_pos != NULL) *out_continue_pos = desc.continue_pos;
   return LOXC_OK;
 }
 

@@ -79,6 +79,11 @@ static uint32_t read_u32_le_at(const uint8_t *buf, size_t off) {
          ((uint32_t)buf[off + 3u] << 24u);
 }
 
+static uint16_t read_u16_le_at(const uint8_t *buf, size_t off) {
+  return (uint16_t)buf[off] |
+         (uint16_t)((uint16_t)buf[off + 1u] << 8u);
+}
+
 static void write_u32_le_at(uint8_t *buf, size_t off, uint32_t v) {
   buf[off] = (uint8_t)(v & 0xFFu);
   buf[off + 1u] = (uint8_t)((v >> 8u) & 0xFFu);
@@ -175,6 +180,15 @@ static void test_direct_generated_roundtrip(void) {
   assert(memcmp(SAMPLE, decoded, in_len) == 0);
 }
 
+static void test_generated_level_count_consistency(void) {
+  uint8_t encoded[8192];
+  size_t encoded_len =
+      compress_with_module("demo", SAMPLE, strlen(SAMPLE), encoded, sizeof(encoded));
+  assert(encoded_len >= LOXC_HEADER_SIZE_V2);
+  assert(read_u16_le_at(encoded, LOXC_HEADER_OFFSET_LEVEL_COUNT) ==
+         (uint16_t)LOXC_MOD_DEMO_LEVELS);
+}
+
 static void expect_binary_roundtrip(const char *module_name,
                                     const uint8_t *data,
                                     size_t data_len) {
@@ -217,6 +231,8 @@ int main(void) {
   assert(loxc_mod_demo_register() == LOXC_OK);
   expect_roundtrip_ok("demo", SAMPLE);
   puts("test_train_demo: PASS (generated registry round-trip)");
+  test_generated_level_count_consistency();
+  puts("test_train_demo: PASS (generated level-count consistency)");
 
   expect_roundtrip_contract("demo");
   puts("test_train_demo: PASS (generated decode contract)");
@@ -234,6 +250,7 @@ int main(void) {
   assert(runtime_module != NULL);
   assert(strcmp(runtime_module->name, "runtime_train_demo") == 0);
   assert(loxc_module_register(runtime_module) == LOXC_OK);
+  assert(runtime_module->level_count == (uint16_t)LOXC_MOD_DEMO_LEVELS);
 
   expect_roundtrip_ok("runtime_train_demo", SAMPLE);
   puts("test_train_demo: PASS (runtime-loaded round-trip)");

@@ -10,31 +10,26 @@ int loxc_hier_build(
     loxc_strategy_t strategy,
     loxc_hier_t *out
 ) {
+  loxc_strategy_desc_t desc;
+
   if (freqs == NULL || out == NULL) return LOXC_ERR_NULL;
   if (n == 0) return LOXC_ERR_NULL;
-  if (strategy != LOXC_STRATEGY_HIERARCHICAL_8 &&
-      strategy != LOXC_STRATEGY_HIERARCHICAL_4) {
+  if (loxc_strategy_describe(strategy, &desc) != LOXC_OK ||
+      desc.direct_slots == 0u) {
     return LOXC_ERR_INVALID_MAGIC;
   }
 
   memset(out, 0, sizeof(*out));
   out->strategy = strategy;
-
-  if (strategy == LOXC_STRATEGY_HIERARCHICAL_8) {
-    out->direct_slots = 55;   /* 64 total: 55 direct + 1 raw + 1 continue + 7 invalid */
-    out->bits_per_level = 6;  /* ceil(log2(64)) */
-    out->raw_pos = 55;
-    out->continue_pos = 56;
-  } else {
-    out->direct_slots = 14;   /* 16 total: 14 direct + 1 raw + 1 continue */
-    out->bits_per_level = 4;  /* ceil(log2(16)) */
-    out->raw_pos = 14;
-    out->continue_pos = 15;
-  }
+  out->direct_slots = desc.direct_slots;
+  out->bits_per_level = desc.bits_per_level;
+  out->raw_pos = desc.raw_pos;
+  out->continue_pos = desc.continue_pos;
 
   out->symbol_count = (uint32_t)n;
-  out->level_count =
-      (uint16_t)((n + out->direct_slots - 1) / out->direct_slots);
+  if (loxc_strategy_level_count(strategy, n, &out->level_count) != LOXC_OK) {
+    return LOXC_ERR_OVERFLOW;
+  }
 
   /* Allocate pos_to_symbol: [0..n-1] maps rank to symbol_id */
   out->pos_to_symbol = (uint32_t *)malloc(n * sizeof(uint32_t));
@@ -57,7 +52,13 @@ int loxc_hier_build(
   for (size_t i = 0; i < n; i++) {
     uint32_t sid = freqs[i].symbol_id;
     out->pos_to_symbol[i] = sid;
-    if (sid >= (uint32_t)n) return LOXC_ERR_INVALID_MAGIC;
+    if (sid >= (uint32_t)n) {
+      free(out->pos_to_symbol);
+      free(out->symbol_to_pos);
+      out->pos_to_symbol = NULL;
+      out->symbol_to_pos = NULL;
+      return LOXC_ERR_INVALID_MAGIC;
+    }
     out->symbol_to_pos[sid] = (uint32_t)i;
   }
 

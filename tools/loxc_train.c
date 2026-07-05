@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -68,6 +69,16 @@ typedef struct {
   size_t len;
 } dict_candidate_t;
 
+typedef struct {
+  loxc_strategy_t strategy;
+  loxc_strategy_desc_t desc;
+  uint64_t payload_bits;
+  uint64_t total_bits;
+  uint64_t total_symbols;
+  uint16_t level_count;
+  size_t total_bytes;
+} strategy_eval_t;
+
 static int cmp_dict_candidate(const void *a, const void *b) {
   const dict_candidate_t *da = (const dict_candidate_t *)a;
   const dict_candidate_t *db = (const dict_candidate_t *)b;
@@ -80,6 +91,34 @@ static int cmp_dict_candidate(const void *a, const void *b) {
   return 0;
 }
 
+static int checked_add_size(size_t a, size_t b, size_t *out) {
+  if (out == NULL) return 0;
+  if (a > SIZE_MAX - b) return 0;
+  *out = a + b;
+  return 1;
+}
+
+static int checked_mul_size(size_t a, size_t b, size_t *out) {
+  if (out == NULL) return 0;
+  if (a != 0u && b > SIZE_MAX / a) return 0;
+  *out = a * b;
+  return 1;
+}
+
+static int checked_add_u64(uint64_t a, uint64_t b, uint64_t *out) {
+  if (out == NULL) return 0;
+  if (a > UINT64_MAX - b) return 0;
+  *out = a + b;
+  return 1;
+}
+
+static int checked_mul_u64(uint64_t a, uint64_t b, uint64_t *out) {
+  if (out == NULL) return 0;
+  if (a != 0u && b > UINT64_MAX / a) return 0;
+  *out = a * b;
+  return 1;
+}
+
 static size_t compute_total_size_bytes(const uint64_t raw_char_counts[256],
                                       const loxc_dict_t *dict,
                                       const uint8_t *accepted_mask,
@@ -90,7 +129,8 @@ static size_t compute_total_size_bytes(const uint64_t raw_char_counts[256],
   memcpy(char_counts, raw_char_counts, sizeof(char_counts));
 
   uint64_t dict_occurrences = 0;
-  size_t dict_overhead = 0;
+  size_t dict_data_bytes = 0;
+  size_t dict_count = 0;
   if (dict != NULL && dict->entries != NULL && dict->count > 0) {
     for (size_t i = 0; i < dict->count; i++) {
       if (accepted_mask == NULL || accepted_mask[i] == 0) continue;
@@ -100,7 +140,10 @@ static size_t compute_total_size_bytes(const uint64_t raw_char_counts[256],
       if (word == NULL || wlen == 0 || cnt == 0) continue;
 
       dict_occurrences += cnt;
-      dict_overhead += (wlen + 8u);
+      if (!checked_add_size(dict_data_bytes, wlen, &dict_data_bytes)) {
+        return SIZE_MAX;
+      }
+      dict_count++;
 
       for (size_t j = 0; j < wlen; j++) {
         const uint8_t ch = (uint8_t)word[j];
@@ -123,13 +166,32 @@ static size_t compute_total_size_bytes(const uint64_t raw_char_counts[256],
   }
 
   const size_t symbol_count = byte_symbols + accepted_count;
+  uint64_t total_occ = 0u;
   const uint8_t bps = bits_needed_u32((uint32_t)symbol_count + 1u);
-  const uint64_t total_occ = byte_occurrences + dict_occurrences;
-  const uint64_t data_bits = (uint64_t)bps * total_occ;
-  const size_t data_bytes = (size_t)((data_bits + 7u) / 8u);
+  uint64_t data_bits = 0u;
+  size_t table_data_bytes = 0;
+  size_t symbol_bytes = 0;
+  size_t offset_bytes = 0;
+  size_t total_bytes = 0;
 
-  const size_t header_bytes = LOXC_HEADER_SIZE_V2;
-  const size_t total_bytes = header_bytes + dict_overhead + data_bytes;
+  if (!checked_add_u64(byte_occurrences, dict_occurrences, &total_occ) ||
+      !checked_mul_u64(total_occ, (uint64_t)bps, &data_bits)) {
+    return SIZE_MAX;
+  }
+
+  if (!checked_mul_size(symbol_count, 5u, &symbol_bytes) ||
+      !checked_mul_size(dict_count + 1u, 4u, &offset_bytes) ||
+      !checked_add_size(1024u, symbol_bytes, &table_data_bytes) ||
+      !checked_add_size(table_data_bytes, offset_bytes, &table_data_bytes) ||
+      !checked_add_size(table_data_bytes, 4u, &table_data_bytes) ||
+      !checked_add_size(table_data_bytes, dict_data_bytes, &table_data_bytes) ||
+      !checked_add_size(LOXC_TAB_HEADER_SIZE, table_data_bytes, &total_bytes) ||
+      !checked_add_size(total_bytes, LOXC_TAB_TRAILER_SIZE, &total_bytes) ||
+      !checked_add_size(total_bytes, LOXC_HEADER_SIZE_V2, &total_bytes) ||
+      !checked_add_size(total_bytes, (size_t)((data_bits + 7u) / 8u),
+                        &total_bytes)) {
+    return SIZE_MAX;
+  }
 
   if (out_bits_per_symbol) *out_bits_per_symbol = bps;
   if (out_symbol_count) *out_symbol_count = symbol_count;
@@ -151,6 +213,18 @@ static int cmp_dict_emit(const void *a, const void *b) {
   if (n == 0) return 0;
   const int rc = memcmp(da->bytes, db->bytes, n);
   if (rc != 0) return rc;
+  return 0;
+}
+
+static int cmp_symbol_bytes(const uint8_t *a, size_t a_len,
+                            const uint8_t *b, size_t b_len) {
+  const size_t n = (a_len < b_len) ? a_len : b_len;
+  if (n > 0u) {
+    const int rc = memcmp(a, b, n);
+    if (rc != 0) return rc;
+  }
+  if (a_len < b_len) return -1;
+  if (a_len > b_len) return 1;
   return 0;
 }
 
@@ -542,6 +616,74 @@ static int parse_args(int argc, char *argv[], const char *inputs[],
   return 0;
 }
 
+static int strategy_eval_better(const strategy_eval_t *cand,
+                                const strategy_eval_t *best) {
+  if (cand->total_bits != best->total_bits) {
+    return cand->total_bits < best->total_bits;
+  }
+  if (cand->payload_bits != best->payload_bits) {
+    return cand->payload_bits < best->payload_bits;
+  }
+  if (cand->level_count != best->level_count) {
+    return cand->level_count < best->level_count;
+  }
+  return cand->strategy < best->strategy;
+}
+
+static int evaluate_strategy(const loxc_freq_entry_t *freqs,
+                             size_t symbol_count,
+                             size_t dict_count,
+                             size_t dict_data_bytes,
+                             loxc_strategy_t strategy,
+                             strategy_eval_t *out_eval) {
+  strategy_eval_t eval;
+  size_t symbol_meta_bytes = 0u;
+  size_t offset_bytes = 0u;
+  size_t table_data_bytes = 0u;
+  size_t table_blob_bytes = 0u;
+  size_t total_bytes = 0u;
+  uint64_t total_syms = 0u;
+
+  if (out_eval == NULL) return 1;
+  memset(&eval, 0, sizeof(eval));
+  eval.strategy = strategy;
+  if (loxc_strategy_describe(strategy, &eval.desc) != LOXC_OK) return 1;
+
+  if (strategy == LOXC_STRATEGY_FLAT_FIXED_WIDTH) {
+    eval.payload_bits = loxc_strategy_cost_flat_with_raw(freqs, symbol_count);
+    eval.level_count = 0u;
+  } else {
+    eval.payload_bits =
+        loxc_strategy_cost_hierarchical(freqs, symbol_count, strategy,
+                                        &eval.level_count);
+  }
+  if (eval.payload_bits == UINT64_MAX) return 1;
+
+  for (size_t i = 0; i < symbol_count; i++) {
+    if (!checked_add_u64(total_syms, freqs[i].count, &total_syms)) return 1;
+  }
+  eval.total_symbols = total_syms;
+
+  if (!checked_mul_size(symbol_count, 5u, &symbol_meta_bytes) ||
+      !checked_mul_size(dict_count + 1u, 4u, &offset_bytes) ||
+      !checked_add_size(1024u, symbol_meta_bytes, &table_data_bytes) ||
+      !checked_add_size(table_data_bytes, offset_bytes, &table_data_bytes) ||
+      !checked_add_size(table_data_bytes, 4u, &table_data_bytes) ||
+      !checked_add_size(table_data_bytes, dict_data_bytes, &table_data_bytes) ||
+      !checked_add_size(LOXC_TAB_HEADER_SIZE, table_data_bytes, &table_blob_bytes) ||
+      !checked_add_size(table_blob_bytes, LOXC_TAB_TRAILER_SIZE, &table_blob_bytes) ||
+      !checked_add_size(LOXC_HEADER_SIZE_V2,
+                        (size_t)((eval.payload_bits + 7u) / 8u), &total_bytes) ||
+      !checked_add_size(total_bytes, table_blob_bytes, &total_bytes)) {
+    return 1;
+  }
+
+  eval.total_bytes = total_bytes;
+  eval.total_bits = (uint64_t)total_bytes * 8u;
+  *out_eval = eval;
+  return 0;
+}
+
 static int generate_c_file_hier(const char *input, size_t data_len,
                                 const char *module_name,
                                 const char *name_upper,
@@ -557,8 +699,10 @@ static int generate_c_file_hier(const char *input, size_t data_len,
                                 const uint32_t *symbol_to_dict_index,
                                 const char *func_prefix,
                                 const loxc_hier_t *hier) {
+  loxc_strategy_desc_t desc;
   (void)module_id;
-  (void)hier;
+  if (loxc_strategy_describe(strategy, &desc) != LOXC_OK) return 1;
+  if (hier == NULL) return 1;
 
   char source_path[512];
   snprintf(source_path, sizeof(source_path), "modules/loxc_%s.c", module_name);
@@ -589,11 +733,11 @@ static int generate_c_file_hier(const char *input, size_t data_len,
   fprintf(cfile, "#include <string.h>\n");
   fprintf(cfile, "\n");
 
-  const uint32_t base_size = (strategy == LOXC_STRATEGY_HIERARCHICAL_8) ? 8u : 4u;
-  const uint32_t direct_slots = (strategy == LOXC_STRATEGY_HIERARCHICAL_8) ? 55u : 14u;
-  const uint32_t raw_pos = direct_slots;
-  const uint32_t continue_pos = direct_slots + 1u;
-  const uint32_t bits_per_level = (strategy == LOXC_STRATEGY_HIERARCHICAL_8) ? 6u : 4u;
+  const uint32_t base_size = desc.base_size;
+  const uint32_t direct_slots = desc.direct_slots;
+  const uint32_t raw_pos = desc.raw_pos;
+  const uint32_t continue_pos = desc.continue_pos;
+  const uint32_t bits_per_level = desc.bits_per_level;
   const size_t dict_emit_count = (dict_count > 0) ? dict_count : 1;
 
   fprintf(cfile, "#define MOD_%s_BASE_SIZE      %uu\n", name_upper, (unsigned)base_size);
@@ -602,7 +746,7 @@ static int generate_c_file_hier(const char *input, size_t data_len,
   fprintf(cfile, "#define MOD_%s_DIRECT_SLOTS   %uu\n", name_upper, (unsigned)direct_slots);
   fprintf(cfile, "#define MOD_%s_BITS_PER_LEVEL %uu\n", name_upper, (unsigned)bits_per_level);
   fprintf(cfile, "#define MOD_%s_DICT_COUNT     %zuu\n", name_upper, dict_count);
-  fprintf(cfile, "#define MOD_%s_LEVELS         %uu\n", name_upper, (unsigned)(hier ? hier->level_count : 0u));
+  fprintf(cfile, "#define MOD_%s_LEVELS         %uu\n", name_upper, (unsigned)hier->level_count);
   fprintf(cfile, "#define MOD_%s_FINGERPRINT    0x%08Xu\n", name_upper,
           (unsigned)table_fingerprint);
   fprintf(cfile, "\n");
@@ -1408,7 +1552,25 @@ static int cmp_symbols(const void *a, const void *b) {
   const symbol_rec_t *sb = (const symbol_rec_t *)b;
   if (sa->count > sb->count) return -1;
   if (sa->count < sb->count) return 1;
-  return 0;
+  if (sa->is_dict != sb->is_dict) return (sa->is_dict < sb->is_dict) ? -1 : 1;
+  if (!sa->is_dict) {
+    if (sa->char_val < sb->char_val) return -1;
+    if (sa->char_val > sb->char_val) return 1;
+    return 0;
+  }
+  return cmp_symbol_bytes(sa->dict_bytes, sa->dict_len,
+                          sb->dict_bytes, sb->dict_len);
+}
+
+static int cmp_dict_entry_display(const void *a, const void *b) {
+  const loxc_dict_entry_t *da = (const loxc_dict_entry_t *)a;
+  const loxc_dict_entry_t *db = (const loxc_dict_entry_t *)b;
+  if (da->count > db->count) return -1;
+  if (da->count < db->count) return 1;
+  if (da->gain > db->gain) return -1;
+  if (da->gain < db->gain) return 1;
+  return cmp_symbol_bytes((const uint8_t *)da->word, da->word_len,
+                          (const uint8_t *)db->word, db->word_len);
 }
 
 /* Frequency analysis: chars + dict entries */
@@ -1683,16 +1845,8 @@ static int analyze_freqs(const uint8_t *data, size_t data_len,
     if (dict_sorted != NULL) {
       memcpy(dict_sorted, dict.entries, dict.count * sizeof(loxc_dict_entry_t));
 
-      /* Simple bubble sort by count descending */
-      for (size_t i = 0; i < dict.count; i++) {
-        for (size_t j = i + 1; j < dict.count; j++) {
-          if (dict_sorted[j].count > dict_sorted[i].count) {
-            loxc_dict_entry_t tmp = dict_sorted[i];
-            dict_sorted[i] = dict_sorted[j];
-            dict_sorted[j] = tmp;
-          }
-        }
-      }
+      qsort(dict_sorted, dict.count, sizeof(loxc_dict_entry_t),
+            cmp_dict_entry_display);
 
       printf("\nDict entries (top 20):\n");
       printf("  ID | Entry          | Count | Gain (bits)\n");
@@ -1724,19 +1878,20 @@ static int analyze_freqs(const uint8_t *data, size_t data_len,
     }
   }
 
-  /* Estimate overhead */
+  /* Estimate overhead using actual table/container layout */
   printf("\n=== Overhead Estimation ===\n");
-  size_t header_size = 19;  /* loxc_header_t with CRC */
-  size_t dict_overhead = 0;
+  size_t header_size = LOXC_HEADER_SIZE_V2 + LOXC_TAB_HEADER_SIZE +
+                       LOXC_TAB_TRAILER_SIZE;
+  size_t dict_overhead = 4u; /* dict_data_size field */
   if (dict.count > 0) {
-    /* Only count accepted entries: ~8 bytes overhead + word_len per entry */
+    dict_overhead += (accepted_dict_entries + 1u) * 4u; /* offsets */
     for (size_t i = 0; i < dict.count; i++) {
       if (dict.entries[i].ref_id != 0xFFFFu) {
-        dict_overhead += 8 + dict.entries[i].word_len;
+        dict_overhead += dict.entries[i].word_len;
       }
     }
   }
-  size_t symbol_table_overhead = symbol_count * 8;  /* ~8 bytes per symbol estimate */
+  size_t symbol_table_overhead = 1024u + (symbol_count * 5u);
   size_t total_overhead = header_size + dict_overhead + symbol_table_overhead;
 
   printf("Header size: %zu bytes\n", header_size);
@@ -1813,7 +1968,65 @@ int main(int argc, char *argv[]) {
   }
 
   /* Select strategy */
-  loxc_strategy_result_t result = loxc_strategy_select(freqs, symbol_count);
+  size_t dict_count_for_strategy = 0u;
+  size_t dict_data_bytes_for_strategy = 0u;
+  strategy_eval_t evals[3];
+  strategy_eval_t best_eval;
+  loxc_strategy_result_t result;
+
+  memset(&result, 0, sizeof(result));
+  memset(&best_eval, 0, sizeof(best_eval));
+  best_eval.total_bits = UINT64_MAX;
+  best_eval.payload_bits = UINT64_MAX;
+  best_eval.level_count = UINT16_MAX;
+  best_eval.strategy = LOXC_STRATEGY_HIERARCHICAL_4;
+
+  for (size_t i = 0; i < symbol_count; i++) {
+    if (symbols[i].is_dict) {
+      dict_count_for_strategy++;
+      if (!checked_add_size(dict_data_bytes_for_strategy, symbols[i].dict_len,
+                            &dict_data_bytes_for_strategy)) {
+        fprintf(stderr, "Error: dict data size overflow\n");
+        free(freqs);
+        free_symbol_recs(symbols, symbol_count);
+        free(symbols);
+        free(data);
+        return 1;
+      }
+    }
+  }
+
+  if (evaluate_strategy(freqs, symbol_count, dict_count_for_strategy,
+                        dict_data_bytes_for_strategy,
+                        LOXC_STRATEGY_FLAT_FIXED_WIDTH, &evals[0]) != 0 ||
+      evaluate_strategy(freqs, symbol_count, dict_count_for_strategy,
+                        dict_data_bytes_for_strategy,
+                        LOXC_STRATEGY_HIERARCHICAL_8, &evals[1]) != 0 ||
+      evaluate_strategy(freqs, symbol_count, dict_count_for_strategy,
+                        dict_data_bytes_for_strategy,
+                        LOXC_STRATEGY_HIERARCHICAL_4, &evals[2]) != 0) {
+    fprintf(stderr, "Error: strategy evaluation failed\n");
+    free(freqs);
+    free_symbol_recs(symbols, symbol_count);
+    free(symbols);
+    free(data);
+    return 1;
+  }
+
+  for (size_t i = 0; i < 3u; i++) {
+    if (strategy_eval_better(&evals[i], &best_eval)) {
+      best_eval = evals[i];
+    }
+  }
+
+  result.strategy = best_eval.strategy;
+  result.predicted_bits = best_eval.payload_bits;
+  result.predicted_total_bits = best_eval.total_bits;
+  result.level_count = best_eval.level_count;
+  result.bits_per_symbol =
+      best_eval.total_symbols > 0u
+          ? (double)best_eval.payload_bits / (double)best_eval.total_symbols
+          : 0.0;
 
   const char *strategy_name =
       (result.strategy == LOXC_STRATEGY_FLAT_FIXED_WIDTH)
@@ -1832,25 +2045,23 @@ int main(int argc, char *argv[]) {
   }
 
   /* Show all three strategies for comparison */
-  uint16_t lvl8 = 0, lvl4 = 0;
-  uint64_t cost_flat = loxc_strategy_cost_flat_with_raw(freqs, symbol_count);
-  uint64_t cost_hier8 =
-      loxc_strategy_cost_hierarchical(freqs, symbol_count, 8, 9, &lvl8);
-  uint64_t cost_hier4 =
-      loxc_strategy_cost_hierarchical(freqs, symbol_count, 4, 2, &lvl4);
-
   printf("\nStrategy costs (all symbols, bits):\n");
-  printf("  FLAT:  %llu bits\n", (unsigned long long)cost_flat);
-  printf("  HIER8: %llu bits (levels=%u)\n", (unsigned long long)cost_hier8,
-         lvl8);
-  printf("  HIER4: %llu bits (levels=%u)\n", (unsigned long long)cost_hier4,
-         lvl4);
+  printf("  FLAT:  %llu bits (levels=%u, total=%zu bytes)\n",
+         (unsigned long long)evals[0].payload_bits, evals[0].level_count,
+         evals[0].total_bytes);
+  printf("  HIER8: %llu bits (levels=%u, total=%zu bytes)\n",
+         (unsigned long long)evals[1].payload_bits, evals[1].level_count,
+         evals[1].total_bytes);
+  printf("  HIER4: %llu bits (levels=%u, total=%zu bytes)\n",
+         (unsigned long long)evals[2].payload_bits, evals[2].level_count,
+         evals[2].total_bytes);
 
   /* Calculate total output size */
   uint64_t predicted_data_bits = result.predicted_bits;
   size_t predicted_data_bytes = (predicted_data_bits + 7) / 8;  /* round up */
-  size_t total_output_bytes = header_size + dict_overhead + symbol_table_overhead + predicted_data_bytes;
-  double compression_ratio = (100.0 * total_output_bytes) / data_len;
+  size_t total_output_bytes = best_eval.total_bytes;
+  double compression_ratio =
+      (data_len > 0u) ? (100.0 * total_output_bytes) / data_len : 0.0;
 
   printf("\n=== Output Size Estimation ===\n");
   printf("Data bits (encoding): %llu\n", (unsigned long long)predicted_data_bits);
@@ -1867,6 +2078,15 @@ int main(int argc, char *argv[]) {
   if (result.strategy != LOXC_STRATEGY_FLAT_FIXED_WIDTH) {
     int rc = loxc_hier_build(freqs, symbol_count, result.strategy, &hier);
     if (rc == LOXC_OK) {
+      if (hier.level_count != result.level_count) {
+        fprintf(stderr, "Error: hierarchy level-count mismatch\n");
+        loxc_hier_free(&hier);
+        free(freqs);
+        free_symbol_recs(symbols, symbol_count);
+        free(symbols);
+        free(data);
+        return 1;
+      }
       printf("\nHierarchical structure built: %u levels, %u symbols\n",
              hier.level_count, hier.symbol_count);
     }
@@ -2125,10 +2345,8 @@ int main(int argc, char *argv[]) {
       if (sid < symbol_count) symbol_to_dict_index[sid] = i;
     }
 
-    const uint8_t base_size =
-        (result.strategy == LOXC_STRATEGY_HIERARCHICAL_8) ? 8u : 4u;
-    const uint8_t bits_per_level =
-        (result.strategy == LOXC_STRATEGY_HIERARCHICAL_8) ? 6u : 4u;
+    const uint8_t base_size = best_eval.desc.base_size;
+    const uint8_t bits_per_level = best_eval.desc.bits_per_level;
     uint32_t table_fingerprint = 0u;
     gen_rc = write_loxctab_from_emit(output, module_name, module_id, 2u,
                                      symbols, symbol_count,
