@@ -25,7 +25,7 @@ static void test_hier8_30_symbols(void) {
   assert(rc == LOXC_OK);
   assert(h.symbol_count == 30);
   assert(h.level_count == 1); /* all fit in L0 */
-  assert(h.direct_slots == 56);
+  assert(h.direct_slots == 55);
   assert(h.bits_per_level == 6);
 
   /* Encode all symbols */
@@ -71,7 +71,7 @@ static void test_hier8_100_symbols(void) {
   int rc = loxc_hier_build(freqs, 100, LOXC_STRATEGY_HIERARCHICAL_8, &h);
   assert(rc == LOXC_OK);
   assert(h.symbol_count == 100);
-  assert(h.level_count == 2); /* 56 on L0, 44 on L1 */
+  assert(h.level_count == 2); /* 55 on L0, 45 on L1 */
 
   uint8_t buffer[512];
   loxc_writer_t w;
@@ -85,7 +85,7 @@ static void test_hier8_100_symbols(void) {
   rc = loxc_writer_flush(&w);
   assert(rc == LOXC_OK);
   size_t total_bits = w.byte_pos * 8;
-  size_t expected_bits = 56 * 6 + 44 * 12; /* 336 + 528 = 864, stored in 108 bytes = 864 bits */
+  size_t expected_bits = 55 * 6 + 45 * 12; /* 330 + 540 = 870 bits, stored in 109 bytes with padding */
   printf("  Encoded bits: %zu (expected ~%zu, stored in %zu bytes)\n", total_bits, expected_bits, w.byte_pos);
 
   loxc_reader_t r;
@@ -115,7 +115,7 @@ static void test_hier8_200_symbols(void) {
   int rc = loxc_hier_build(freqs, 200, LOXC_STRATEGY_HIERARCHICAL_8, &h);
   assert(rc == LOXC_OK);
   assert(h.symbol_count == 200);
-  assert(h.level_count == 4); /* 56 L0, 56 L1, 56 L2, 32 L3 */
+  assert(h.level_count == 4); /* 55 L0, 55 L1, 55 L2, 35 L3 */
 
   uint8_t buffer[1024];
   loxc_writer_t w;
@@ -129,7 +129,7 @@ static void test_hier8_200_symbols(void) {
   rc = loxc_writer_flush(&w);
   assert(rc == LOXC_OK);
   size_t total_bits = w.byte_pos * 8;
-  size_t expected_bits = 56 * 6 + 56 * 12 + 56 * 18 + 32 * 24; /* 2784, stored in 348 bytes = 2784 bits */
+  size_t expected_bits = 55 * 6 + 55 * 12 + 55 * 18 + 35 * 24; /* 2820 bits, stored in 353 bytes with padding */
   printf("  Encoded bits: %zu (expected ~%zu, stored in %zu bytes)\n", total_bits, expected_bits, w.byte_pos);
 
   loxc_reader_t r;
@@ -159,7 +159,7 @@ static void test_hier4_20_symbols(void) {
   assert(rc == LOXC_OK);
   assert(h.symbol_count == 20);
   assert(h.level_count == 2); /* 15 on L0, 5 on L1 */
-  assert(h.direct_slots == 15);
+  assert(h.direct_slots == 14);
   assert(h.bits_per_level == 4);
 
   uint8_t buffer[128];
@@ -174,7 +174,7 @@ static void test_hier4_20_symbols(void) {
   rc = loxc_writer_flush(&w);
   assert(rc == LOXC_OK);
   size_t total_bits = w.byte_pos * 8;
-  size_t expected_bits = 15 * 4 + 5 * 8; /* 100, stored in 13 bytes = 104 bits with padding */
+  size_t expected_bits = 14 * 4 + 6 * 8; /* 104 bits, stored in 13 bytes */
   printf("  Encoded bits: %zu (expected ~%zu, stored in %zu bytes)\n", total_bits, expected_bits, w.byte_pos);
 
   loxc_reader_t r;
@@ -249,8 +249,8 @@ static void test_edge_truncated_stream(void) {
      Then we'd try to read the 3rd level... but we're out of data. */
 
   /* Actually, let me reconsider: we encoded symbol 99, which is at rank 99.
-     level = 99 / 56 = 1
-     pos_in_level = 99 % 56 = 43
+     level = 99 / 55 = 1
+     pos_in_level = 99 % 55 = 44
      So we write: escape_pos (6 bits) + 43 (6 bits) = 12 bits = 1.5 bytes
      Then we flush, which pads to 2 bytes = 16 bits.
 

@@ -38,6 +38,7 @@ loxc_strategy_result_t loxc_strategy_select(
 
 /* Cost estimation functions (exported for testing) */
 uint64_t loxc_strategy_cost_flat(const loxc_freq_entry_t *freqs, size_t n);
+uint64_t loxc_strategy_cost_flat_with_raw(const loxc_freq_entry_t *freqs, size_t n);
 
 uint64_t loxc_strategy_cost_hierarchical(
     const loxc_freq_entry_t *freqs,

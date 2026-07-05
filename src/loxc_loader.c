@@ -23,7 +23,8 @@ typedef struct {
   uint8_t base_size;
   uint8_t bits_per_level;
   uint8_t direct_slots;
-  uint8_t escape_pos;
+  uint8_t raw_pos;
+  uint8_t continue_pos;
   uint16_t level_count;
   uint32_t table_fingerprint;
   uint32_t symbol_count;
@@ -59,7 +60,8 @@ typedef struct {
   uint8_t base_size;
   uint8_t bits_per_level;
   uint8_t direct_slots;
-  uint8_t escape_pos;
+  uint8_t raw_pos;
+  uint8_t continue_pos;
   uint16_t level_count;
   uint32_t table_fingerprint;
   uint32_t symbol_count;
@@ -104,8 +106,11 @@ static int loxc__validate_strategy_config(uint8_t strategy_id,
                                           uint8_t bits_per_level,
                                           uint16_t level_count,
                                           uint8_t *out_direct_slots,
-                                          uint8_t *out_escape_pos) {
+                                          uint8_t *out_raw_pos,
+                                          uint8_t *out_continue_pos) {
   uint8_t direct_slots = 0u;
+  uint8_t raw_pos = 0u;
+  uint8_t continue_pos = 0u;
 
   switch (strategy_id) {
     case LOXC_STRATEGY_FLAT_FIXED_WIDTH:
@@ -113,27 +118,34 @@ static int loxc__validate_strategy_config(uint8_t strategy_id,
         return LOXC_ERR_INVALID_FORMAT;
       }
       direct_slots = 0u;
+      raw_pos = 0u;
+      continue_pos = 0u;
       break;
     case LOXC_STRATEGY_HIERARCHICAL_4:
       if (base_size != 4u || bits_per_level != 4u || level_count == 0u ||
           level_count > LOXC_TAB_MAX_LEVEL_COUNT) {
         return LOXC_ERR_INVALID_FORMAT;
       }
-      direct_slots = 15u;
+      direct_slots = 14u;
+      raw_pos = 14u;
+      continue_pos = 15u;
       break;
     case LOXC_STRATEGY_HIERARCHICAL_8:
       if (base_size != 8u || bits_per_level != 6u || level_count == 0u ||
           level_count > LOXC_TAB_MAX_LEVEL_COUNT) {
         return LOXC_ERR_INVALID_FORMAT;
       }
-      direct_slots = 56u;
+      direct_slots = 55u;
+      raw_pos = 55u;
+      continue_pos = 56u;
       break;
     default:
       return LOXC_ERR_INVALID_FORMAT;
   }
 
   if (out_direct_slots != NULL) *out_direct_slots = direct_slots;
-  if (out_escape_pos != NULL) *out_escape_pos = direct_slots;
+  if (out_raw_pos != NULL) *out_raw_pos = raw_pos;
+  if (out_continue_pos != NULL) *out_continue_pos = continue_pos;
   return LOXC_OK;
 }
 
@@ -220,7 +232,8 @@ static int loxc__parse_table(const uint8_t *buf,
   if (loxc__validate_strategy_config(parsed.strategy_id, parsed.base_size,
                                      parsed.bits_per_level, parsed.level_count,
                                      &parsed.direct_slots,
-                                     &parsed.escape_pos) != LOXC_OK) {
+                                     &parsed.raw_pos,
+                                     &parsed.continue_pos) != LOXC_OK) {
     return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 7u, "invalid loxctab strategy/base/bits/level configuration");
   }
   if (parsed.strategy_id != LOXC_STRATEGY_FLAT_FIXED_WIDTH) {
@@ -483,7 +496,7 @@ static int loxc_generic_encode(const char *text, size_t text_len,
                                const loxc_loaded_module_ctx_t *ctx) {
   if (text == NULL || w == NULL || ctx == NULL) return LOXC_ERR_NULL;
 
-  const uint8_t flat_bits = bits_needed_u32(ctx->symbol_count);
+  const uint8_t flat_bits = bits_needed_u32(ctx->symbol_count + 1u);
   size_t i = 0;
   while (i < text_len) {
     uint32_t sym_id = 0xFFFFFFFFu;
@@ -510,7 +523,21 @@ static int loxc_generic_encode(const char *text, size_t text_len,
 
     if (sym_id == 0xFFFFFFFFu) {
       sym_id = ctx->byte_to_symbol[(uint8_t)text[i]];
-      if (sym_id == 0xFFFFFFFFu) return LOXC_ERR_SYMBOL_NOT_FOUND;
+      if (sym_id == 0xFFFFFFFFu) {
+        if (ctx->strategy_id == LOXC_STRATEGY_FLAT_FIXED_WIDTH) {
+          int rc = loxc_write_bits(w, ctx->symbol_count, flat_bits);
+          if (rc != LOXC_OK) return rc;
+          rc = loxc_write_bits(w, (uint8_t)text[i], 8u);
+          if (rc != LOXC_OK) return rc;
+        } else {
+          int rc = loxc_write_bits(w, ctx->raw_pos, ctx->bits_per_level);
+          if (rc != LOXC_OK) return rc;
+          rc = loxc_write_bits(w, (uint8_t)text[i], 8u);
+          if (rc != LOXC_OK) return rc;
+        }
+        i += 1u;
+        continue;
+      }
       consumed = 1u;
     }
 
@@ -524,7 +551,7 @@ static int loxc_generic_encode(const char *text, size_t text_len,
       const uint32_t level = sym_id / (uint32_t)ctx->direct_slots;
       const uint32_t pos = sym_id % (uint32_t)ctx->direct_slots;
       for (uint32_t l = 0; l < level; l++) {
-        int rc = loxc_write_bits(w, (uint32_t)ctx->escape_pos,
+        int rc = loxc_write_bits(w, (uint32_t)ctx->continue_pos,
                                  ctx->bits_per_level);
         if (rc != LOXC_OK) return rc;
       }
@@ -546,7 +573,7 @@ static int loxc_generic_decode(loxc_reader_t *r,
 
   const size_t cap = *inout_len;
   size_t written = 0;
-  const uint8_t flat_bits = bits_needed_u32(ctx->symbol_count);
+  const uint8_t flat_bits = bits_needed_u32(ctx->symbol_count + 1u);
 
   for (;;) {
     if (written == cap) goto done;
@@ -555,6 +582,17 @@ static int loxc_generic_decode(loxc_reader_t *r,
     if (ctx->strategy_id == LOXC_STRATEGY_FLAT_FIXED_WIDTH) {
       int rc = loxc_read_bits(r, flat_bits, &sym_id);
       if (rc != LOXC_OK) return rc;
+      if (sym_id == ctx->symbol_count) {
+        uint32_t raw_byte = 0;
+        rc = loxc_read_bits(r, 8u, &raw_byte);
+        if (rc != LOXC_OK) return rc;
+        if (written >= cap) {
+          *inout_len = written;
+          return LOXC_ERR_OVERFLOW;
+        }
+        out[written++] = (char)(uint8_t)raw_byte;
+        continue;
+      }
     } else {
       if (ctx->direct_slots == 0 || ctx->bits_per_level == 0) {
         return LOXC_ERR_INVALID_FORMAT;
@@ -572,7 +610,21 @@ static int loxc_generic_decode(loxc_reader_t *r,
           found = 1;
           break;
         }
+        if (val == (uint32_t)ctx->raw_pos) {
+          uint32_t raw_byte = 0;
+          rc = loxc_read_bits(r, 8u, &raw_byte);
+          if (rc != LOXC_OK) return rc;
+          if (written >= cap) {
+            *inout_len = written;
+            return LOXC_ERR_OVERFLOW;
+          }
+          out[written++] = (char)(uint8_t)raw_byte;
+          found = 2;
+          break;
+        }
+        if (val != (uint32_t)ctx->continue_pos) return LOXC_ERR_INVALID_FORMAT;
       }
+      if (found == 2) continue;
       if (!found) return LOXC_ERR_INVALID_FORMAT;
       sym_id = level * (uint32_t)ctx->direct_slots + pos;
     }
@@ -835,7 +887,8 @@ int loxc_module_load_from_memory_ex(const uint8_t *buf, size_t buf_size,
   ctx->base_size = parsed.base_size;
   ctx->bits_per_level = parsed.bits_per_level;
   ctx->direct_slots = parsed.direct_slots;
-  ctx->escape_pos = parsed.escape_pos;
+  ctx->raw_pos = parsed.raw_pos;
+  ctx->continue_pos = parsed.continue_pos;
   ctx->level_count = parsed.level_count;
   ctx->table_fingerprint = parsed.table_fingerprint;
   ctx->symbol_count = parsed.symbol_count;

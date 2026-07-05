@@ -21,13 +21,15 @@ int loxc_hier_build(
   out->strategy = strategy;
 
   if (strategy == LOXC_STRATEGY_HIERARCHICAL_8) {
-    out->direct_slots = 56;   /* 8*8 - 8 escape cells */
+    out->direct_slots = 55;   /* 64 total: 55 direct + 1 raw + 1 continue + 7 invalid */
     out->bits_per_level = 6;  /* ceil(log2(64)) */
-    out->escape_pos = 56;
+    out->raw_pos = 55;
+    out->continue_pos = 56;
   } else {
-    out->direct_slots = 15;   /* 4*4 - 1 escape cell */
+    out->direct_slots = 14;   /* 16 total: 14 direct + 1 raw + 1 continue */
     out->bits_per_level = 4;  /* ceil(log2(16)) */
-    out->escape_pos = 15;
+    out->raw_pos = 14;
+    out->continue_pos = 15;
   }
 
   out->symbol_count = (uint32_t)n;
@@ -79,7 +81,7 @@ int loxc_hier_encode(
 
   /* Write escape codes for levels we pass through */
   for (uint32_t l = 0; l < level; l++) {
-    int rc = loxc_write_bits(w, h->escape_pos, h->bits_per_level);
+    int rc = loxc_write_bits(w, h->continue_pos, h->bits_per_level);
     if (rc != LOXC_OK) return rc;
   }
 
@@ -99,14 +101,14 @@ int loxc_hier_decode(
     int rc = loxc_read_bits(r, h->bits_per_level, &pos);
     if (rc != LOXC_OK) return rc;
 
-    if (pos < h->escape_pos) {
+    if (pos < h->direct_slots) {
       /* Found the symbol */
       uint32_t rank = level * h->direct_slots + pos;
       if (rank >= h->symbol_count) return LOXC_ERR_INVALID_MAGIC;
       *out_symbol = h->pos_to_symbol[rank];
       return LOXC_OK;
     }
-    /* pos >= escape_pos: escape to next level */
+    if (pos != h->continue_pos) return LOXC_ERR_INVALID_MAGIC;
   }
 
   /* Exhausted all levels without finding a symbol */

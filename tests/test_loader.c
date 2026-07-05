@@ -261,6 +261,36 @@ static void test_runtime_roundtrip(void) {
   remove_file_if_exists(table_a);
 }
 
+static void test_unseen_byte_escape_roundtrip(void) {
+  uint8_t table[2048];
+  size_t len = build_minimal_flat_table(table, sizeof(table));
+  loxc_module_t *module = loxc_module_load_from_memory(table, len, "narrow_ascii");
+  assert(module != NULL);
+  assert(loxc_module_register(module) == LOXC_OK);
+
+  {
+    static const uint8_t payload[] = {
+        0x41, 0x00, 0xC5, 0xBE, 0x2F, 0x5C, 0xFF, 0x41, 0x7C
+    };
+    uint8_t encoded[256];
+    uint8_t decoded[256];
+    size_t enc_cap = sizeof(encoded);
+    size_t enc_len = 0;
+    size_t dec_cap = sizeof(decoded);
+    size_t dec_len = 0;
+
+    assert(loxc_compress("narrow_ascii", (const char *)payload, sizeof(payload),
+                         encoded, &enc_cap, &enc_len) == LOXC_OK);
+    assert(loxc_decompress(encoded, enc_len, (char *)decoded, &dec_cap,
+                           &dec_len) == LOXC_OK);
+    assert(dec_len == sizeof(payload));
+    assert(memcmp(decoded, payload, sizeof(payload)) == 0);
+  }
+
+  assert(loxc_module_unregister("narrow_ascii") == LOXC_OK);
+  assert(loxc_module_unload(module) == LOXC_OK);
+}
+
 static void test_hostile_loader_inputs(void) {
   uint8_t table[2048];
   uint8_t mutated[2048];
@@ -345,9 +375,11 @@ static void test_hostile_loader_inputs(void) {
 
 int main(void) {
   test_runtime_roundtrip();
+  test_unseen_byte_escape_roundtrip();
   test_hostile_loader_inputs();
 
   puts("test_loader: PASS (external and embedded loxctab round-trip)");
+  puts("test_loader: PASS (unseen-byte escape round-trip)");
   puts("test_loader: PASS (hostile loxctab parser)");
   return 0;
 }

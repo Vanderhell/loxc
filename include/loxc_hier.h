@@ -14,7 +14,8 @@ typedef struct {
   loxc_strategy_t strategy;
   uint32_t direct_slots;
   uint32_t bits_per_level;
-  uint32_t escape_pos;
+  uint32_t raw_pos;
+  uint32_t continue_pos;
   uint16_t level_count;
   uint32_t symbol_count;
   uint32_t *pos_to_symbol;  /* [symbol_count]: rank → symbol_id */

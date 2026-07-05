@@ -123,12 +123,12 @@ static size_t compute_total_size_bytes(const uint64_t raw_char_counts[256],
   }
 
   const size_t symbol_count = byte_symbols + accepted_count;
-  const uint8_t bps = bits_needed_u32((uint32_t)symbol_count);
+  const uint8_t bps = bits_needed_u32((uint32_t)symbol_count + 1u);
   const uint64_t total_occ = byte_occurrences + dict_occurrences;
   const uint64_t data_bits = (uint64_t)bps * total_occ;
   const size_t data_bytes = (size_t)((data_bits + 7u) / 8u);
 
-  const size_t header_bytes = 15; /* v2 header without CRC */
+  const size_t header_bytes = LOXC_HEADER_SIZE_V2;
   const size_t total_bytes = header_bytes + dict_overhead + data_bytes;
 
   if (out_bits_per_symbol) *out_bits_per_symbol = bps;
@@ -590,12 +590,15 @@ static int generate_c_file_hier(const char *input, size_t data_len,
   fprintf(cfile, "\n");
 
   const uint32_t base_size = (strategy == LOXC_STRATEGY_HIERARCHICAL_8) ? 8u : 4u;
-  const uint32_t direct_slots = (strategy == LOXC_STRATEGY_HIERARCHICAL_8) ? 56u : 15u;
+  const uint32_t direct_slots = (strategy == LOXC_STRATEGY_HIERARCHICAL_8) ? 55u : 14u;
+  const uint32_t raw_pos = direct_slots;
+  const uint32_t continue_pos = direct_slots + 1u;
   const uint32_t bits_per_level = (strategy == LOXC_STRATEGY_HIERARCHICAL_8) ? 6u : 4u;
   const size_t dict_emit_count = (dict_count > 0) ? dict_count : 1;
 
   fprintf(cfile, "#define MOD_%s_BASE_SIZE      %uu\n", name_upper, (unsigned)base_size);
-  fprintf(cfile, "#define MOD_%s_ESCAPE_POS     %uu\n", name_upper, (unsigned)direct_slots);
+  fprintf(cfile, "#define MOD_%s_RAW_POS        %uu\n", name_upper, (unsigned)raw_pos);
+  fprintf(cfile, "#define MOD_%s_CONTINUE_POS   %uu\n", name_upper, (unsigned)continue_pos);
   fprintf(cfile, "#define MOD_%s_DIRECT_SLOTS   %uu\n", name_upper, (unsigned)direct_slots);
   fprintf(cfile, "#define MOD_%s_BITS_PER_LEVEL %uu\n", name_upper, (unsigned)bits_per_level);
   fprintf(cfile, "#define MOD_%s_DICT_COUNT     %zuu\n", name_upper, dict_count);
@@ -700,7 +703,15 @@ static int generate_c_file_hier(const char *input, size_t data_len,
           "\n"
           "    if (sym_id == 0xFFFFFFFFu) {\n"
           "      sym_id = mod_%s_byte_to_symbol[(uint8_t)text[i]];\n"
-          "      if (sym_id == 0xFFFFFFFFu) return LOXC_ERR_SYMBOL_NOT_FOUND;\n"
+          "      if (sym_id == 0xFFFFFFFFu) {\n"
+          "        int rc = loxc_write_bits(w, (uint32_t)MOD_%s_RAW_POS,\n"
+          "                                (uint8_t)MOD_%s_BITS_PER_LEVEL);\n"
+          "        if (rc != LOXC_OK) return rc;\n"
+          "        rc = loxc_write_bits(w, (uint8_t)text[i], 8u);\n"
+          "        if (rc != LOXC_OK) return rc;\n"
+          "        i += 1u;\n"
+          "        continue;\n"
+          "      }\n"
           "      consumed = 1;\n"
           "    }\n"
           "\n"
@@ -708,7 +719,7 @@ static int generate_c_file_hier(const char *input, size_t data_len,
           "    const uint32_t pos_in_level = sym_id %% (uint32_t)MOD_%s_DIRECT_SLOTS;\n"
           "\n"
           "    for (uint32_t l = 0; l < level; l++) {\n"
-          "      int rc = loxc_write_bits(w, (uint32_t)MOD_%s_ESCAPE_POS,\n"
+          "      int rc = loxc_write_bits(w, (uint32_t)MOD_%s_CONTINUE_POS,\n"
           "                              (uint8_t)MOD_%s_BITS_PER_LEVEL);\n"
           "      if (rc != LOXC_OK) return rc;\n"
           "    }\n"
@@ -724,7 +735,7 @@ static int generate_c_file_hier(const char *input, size_t data_len,
           "}\n\n",
           func_prefix,
           name_upper, module_name, module_name, module_name,
-          name_upper, name_upper,
+          name_upper, name_upper, name_upper, name_upper,
           name_upper, name_upper, name_upper);
 
   fprintf(cfile,
@@ -752,8 +763,19 @@ static int generate_c_file_hier(const char *input, size_t data_len,
           "        found = 1;\n"
           "        break;\n"
           "      }\n"
+          "      if (val == (uint32_t)MOD_%s_RAW_POS) {\n"
+          "        uint32_t raw_byte = 0;\n"
+          "        rc = loxc_read_bits(r, 8u, &raw_byte);\n"
+          "        if (rc != LOXC_OK) return rc;\n"
+          "        if (written >= cap) { *inout_len = written; return LOXC_ERR_OVERFLOW; }\n"
+          "        out[written++] = (char)(uint8_t)raw_byte;\n"
+          "        found = 2;\n"
+          "        break;\n"
+          "      }\n"
+          "      if (val != (uint32_t)MOD_%s_CONTINUE_POS) return LOXC_ERR_INVALID_FORMAT;\n"
           "    }\n"
           "\n"
+          "    if (found == 2) continue;\n"
           "    if (!found) return LOXC_ERR_INVALID_FORMAT;\n"
           "\n"
           "    uint32_t sym_id = level * (uint32_t)MOD_%s_DIRECT_SLOTS + pos;\n"
@@ -778,7 +800,7 @@ static int generate_c_file_hier(const char *input, size_t data_len,
           "}\n\n",
           func_prefix,
           name_upper,
-          name_upper, name_upper, name_upper,
+          name_upper, name_upper, name_upper, name_upper, name_upper,
           name_upper,
           module_name, module_name,
           module_name);
@@ -932,8 +954,6 @@ static int generate_c_file_flat(const char *input, size_t data_len,
     return 1;
   }
 
-  const uint8_t sym_bits = bits_needed_u32((uint32_t)symbol_count);
-
   /* Write .c */
   fprintf(cfile,
           "/* AUTO-GENERATED by loxc_train. DO NOT EDIT.\n"
@@ -960,7 +980,8 @@ static int generate_c_file_flat(const char *input, size_t data_len,
           "                                size_t out_cap, size_t *out_len);\n\n",
           module_name, module_name);
 
-  fprintf(cfile, "enum { MOD_%s_SYMBOL_BITS = %u };\n", name_upper, sym_bits);
+  fprintf(cfile, "enum { MOD_%s_SYMBOL_BITS = %u };\n", name_upper,
+          bits_needed_u32((uint32_t)symbol_count + 1u));
   fprintf(cfile, "#define MOD_%s_FINGERPRINT    0x%08Xu\n", name_upper,
           (unsigned)table_fingerprint);
   fprintf(cfile, "\n");
@@ -1057,7 +1078,14 @@ static int generate_c_file_flat(const char *input, size_t data_len,
           "    }\n"
           "    if (sym_id == 0xFFFFFFFFu) {\n"
           "      sym_id = mod_%s_byte_to_symbol[(uint8_t)text[i]];\n"
-          "      if (sym_id == 0xFFFFFFFFu) return LOXC_ERR_SYMBOL_NOT_FOUND;\n"
+          "      if (sym_id == 0xFFFFFFFFu) {\n"
+          "        int rc = loxc_write_bits(w, %zuu, MOD_%s_SYMBOL_BITS);\n"
+          "        if (rc != LOXC_OK) return rc;\n"
+          "        rc = loxc_write_bits(w, (uint8_t)text[i], 8u);\n"
+          "        if (rc != LOXC_OK) return rc;\n"
+          "        i += 1;\n"
+          "        continue;\n"
+          "      }\n"
           "      consumed = 1;\n"
           "    }\n"
           "    int rc = loxc_write_bits(w, sym_id, MOD_%s_SYMBOL_BITS);\n"
@@ -1066,7 +1094,8 @@ static int generate_c_file_flat(const char *input, size_t data_len,
           "  }\n"
           "  return LOXC_OK;\n"
           "}\n\n",
-          func_prefix, dict_count, module_name, module_name, module_name, name_upper);
+          func_prefix, dict_count, module_name, module_name, module_name,
+          symbol_count, name_upper, name_upper);
 
   fprintf(cfile,
           "int %s_decode(loxc_reader_t *r, char *out, size_t *inout_len) {\n"
@@ -1078,6 +1107,14 @@ static int generate_c_file_flat(const char *input, size_t data_len,
           "    int rc = loxc_read_bits(r, MOD_%s_SYMBOL_BITS, &sym_id);\n"
           "    if (rc == LOXC_ERR_TRUNCATED) break;\n"
           "    if (rc != LOXC_OK) return rc;\n"
+          "    if (sym_id == %zuu) {\n"
+          "      uint32_t raw_byte = 0;\n"
+          "      rc = loxc_read_bits(r, 8u, &raw_byte);\n"
+          "      if (rc != LOXC_OK) return rc;\n"
+          "      if (pos + 1 > cap) return LOXC_ERR_OVERFLOW;\n"
+          "      out[pos++] = (char)(uint8_t)raw_byte;\n"
+          "      continue;\n"
+          "    }\n"
           "    if (sym_id >= %zuu) return LOXC_ERR_INVALID_FORMAT;\n"
           "    const mod_%s_symbol_t s = mod_%s_symbols[sym_id];\n"
           "    if (s.type == 0u) {\n"
@@ -1098,8 +1135,8 @@ static int generate_c_file_flat(const char *input, size_t data_len,
           "  *inout_len = pos;\n"
           "  return LOXC_OK;\n"
           "}\n\n",
-          func_prefix, name_upper, symbol_count, module_name, module_name,
-          dict_count, module_name);
+          func_prefix, name_upper, symbol_count, symbol_count, module_name,
+          module_name, dict_count, module_name);
 
   fprintf(cfile,
           "static const loxc_module_t mod_%s_module = {\n"
@@ -1796,11 +1833,11 @@ int main(int argc, char *argv[]) {
 
   /* Show all three strategies for comparison */
   uint16_t lvl8 = 0, lvl4 = 0;
-  uint64_t cost_flat = loxc_strategy_cost_flat(freqs, symbol_count);
+  uint64_t cost_flat = loxc_strategy_cost_flat_with_raw(freqs, symbol_count);
   uint64_t cost_hier8 =
-      loxc_strategy_cost_hierarchical(freqs, symbol_count, 8, 8, &lvl8);
+      loxc_strategy_cost_hierarchical(freqs, symbol_count, 8, 9, &lvl8);
   uint64_t cost_hier4 =
-      loxc_strategy_cost_hierarchical(freqs, symbol_count, 4, 4, &lvl4);
+      loxc_strategy_cost_hierarchical(freqs, symbol_count, 4, 2, &lvl4);
 
   printf("\nStrategy costs (all symbols, bits):\n");
   printf("  FLAT:  %llu bits\n", (unsigned long long)cost_flat);

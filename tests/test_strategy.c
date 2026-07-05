@@ -45,13 +45,13 @@ static void make_zipfian(loxc_freq_entry_t *out, size_t n, uint64_t total) {
 
 /* Generic test: compute all strategies, find minimum, verify selector picks it */
 static void test_scenario(const char *name, const loxc_freq_entry_t *freqs, size_t n) {
-  uint64_t flat = loxc_strategy_cost_flat(freqs, n);
+  uint64_t flat = loxc_strategy_cost_flat_with_raw(freqs, n);
 
   uint16_t lvl8 = 0;
-  uint64_t hier8 = loxc_strategy_cost_hierarchical(freqs, n, 8, 8, &lvl8);
+  uint64_t hier8 = loxc_strategy_cost_hierarchical(freqs, n, 8, 9, &lvl8);
 
   uint16_t lvl4 = 0;
-  uint64_t hier4 = loxc_strategy_cost_hierarchical(freqs, n, 4, 4, &lvl4);
+  uint64_t hier4 = loxc_strategy_cost_hierarchical(freqs, n, 4, 2, &lvl4);
 
   /* Find actual minimum */
   uint64_t actual_min = flat;

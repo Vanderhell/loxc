@@ -22,6 +22,17 @@ uint64_t loxc_strategy_cost_flat(const loxc_freq_entry_t *freqs, size_t n) {
   return total;
 }
 
+uint64_t loxc_strategy_cost_flat_with_raw(const loxc_freq_entry_t *freqs, size_t n) {
+  if (n == 0) return 0;
+
+  uint32_t bits = loxc__ceil_log2((uint32_t)n + 1u);
+  uint64_t total = 0;
+  for (size_t i = 0; i < n; i++) {
+    total += freqs[i].count * (uint64_t)bits;
+  }
+  return total;
+}
+
 uint64_t loxc_strategy_cost_hierarchical(
     const loxc_freq_entry_t *freqs,
     size_t n,
@@ -57,12 +68,12 @@ loxc_strategy_result_t loxc_strategy_select(
 ) {
   loxc_strategy_result_t best;
   best.strategy = LOXC_STRATEGY_FLAT_FIXED_WIDTH;
-  best.predicted_bits = loxc_strategy_cost_flat(freqs, freq_count);
+  best.predicted_bits = loxc_strategy_cost_flat_with_raw(freqs, freq_count);
   best.level_count = 0;
 
   uint16_t lvl8 = 0, lvl4 = 0;
-  uint64_t h8 = loxc_strategy_cost_hierarchical(freqs, freq_count, 8, 8, &lvl8);
-  uint64_t h4 = loxc_strategy_cost_hierarchical(freqs, freq_count, 4, 4, &lvl4);
+  uint64_t h8 = loxc_strategy_cost_hierarchical(freqs, freq_count, 8, 9, &lvl8);
+  uint64_t h4 = loxc_strategy_cost_hierarchical(freqs, freq_count, 4, 2, &lvl4);
 
   if (h8 < best.predicted_bits) {
     best.strategy = LOXC_STRATEGY_HIERARCHICAL_8;
