@@ -204,6 +204,9 @@ typedef struct {
   uint32_t symbol_id;
 } dict_emit_t;
 
+static int cmp_symbol_bytes(const uint8_t *a, size_t a_len,
+                            const uint8_t *b, size_t b_len);
+
 static int cmp_dict_emit(const void *a, const void *b) {
   const dict_emit_t *da = (const dict_emit_t *)a;
   const dict_emit_t *db = (const dict_emit_t *)b;

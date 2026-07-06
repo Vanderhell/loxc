@@ -154,6 +154,37 @@ static void test_simple_multiple_contexts(void) {
   loxc_close(ctx_a);
 }
 
+static void test_simple_open_ex_defaults(void) {
+  loxc_simple_config_t cfg;
+  loxc_ctx_t *ctx = NULL;
+
+  memset(&cfg, 0, sizeof(cfg));
+  assert(loxc_open_ex("modules/loxc_demo.loxctab", &cfg, &ctx) == LOXC_OK);
+  assert(ctx != NULL);
+  loxc_close(ctx);
+}
+
+static void test_simple_embedded_decode_without_ctx(void) {
+  const char *sample = "Embedded round-trip";
+  loxc_ctx_t *ctx = loxc_open("modules/loxc_demo.loxctab");
+  loxc_buffer_t encoded;
+  loxc_buffer_t decoded;
+
+  assert(ctx != NULL);
+  encoded = loxc_compress_buffer(ctx, sample, strlen(sample), 1);
+  assert(encoded.error == LOXC_OK);
+  assert(encoded.data != NULL);
+  loxc_close(ctx);
+
+  decoded = loxc_decompress_buffer(NULL, encoded.data, encoded.size);
+  assert(decoded.error == LOXC_OK);
+  assert(decoded.size == strlen(sample));
+  assert(memcmp(decoded.data, sample, decoded.size) == 0);
+
+  loxc_buffer_free(&encoded);
+  loxc_buffer_free(&decoded);
+}
+
 int main(void) {
   test_simple_open_close();
   puts("test_simple: PASS (open/close)");
@@ -175,6 +206,12 @@ int main(void) {
 
   test_simple_multiple_contexts();
   puts("test_simple: PASS (multiple contexts)");
+
+  test_simple_open_ex_defaults();
+  puts("test_simple: PASS (open_ex defaults)");
+
+  test_simple_embedded_decode_without_ctx();
+  puts("test_simple: PASS (embedded decode without ctx)");
 
   puts("test_simple: PASS (all)");
   return 0;

@@ -93,11 +93,11 @@ static void test_reject_level_multiplication_overflow(void) {
   memset(&m, 0, sizeof(m));
   m.levels = 8;
   for (uint8_t i = 0; i < m.levels; i++) {
-    m.level[i].bits = 24;
+    m.level[i].bits = 21;
     m.level[i].dims = 3;
-    m.level[i].size[0] = 64;
-    m.level[i].size[1] = 64;
-    m.level[i].size[2] = 64;
+    m.level[i].size[0] = 128;
+    m.level[i].size[1] = 128;
+    m.level[i].size[2] = 128;
   }
   data[0].codepoint = 'a';
   data[0].type = LOXC_TYPE_CHAR;
