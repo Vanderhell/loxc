@@ -6,6 +6,10 @@
 
 #include "loxc_stream.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   char *word;
   size_t word_len;
@@ -27,5 +31,9 @@ int loxc_dict_encode(const loxc_dict_t *dict, uint8_t module_id,
 int loxc_dict_decode(loxc_reader_t *r, uint8_t module_id, loxc_dict_t *dict);
 
 void loxc_dict_free(loxc_dict_t *dict);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif /* LOXC_DICT_H */

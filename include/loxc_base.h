@@ -12,11 +12,16 @@
 #include "loxc_matrix.h"
 #include "loxc_dict.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 const uint8_t *loxc_magic_bytes(void);
 
 enum {
-  LOXC_MAGIC_PREFIX_SIZE = 3u,
+  LOXC_MAGIC_PREFIX_SIZE = LOXC_CONTAINER_MAGIC_PREFIX_SIZE,
   LOXC_HEADER_VERSION_V2 = 2u,
+  LOXC_HEADER_VERSION_CURRENT = LOXC_HEADER_VERSION_V2,
   LOXC_HEADER_PAYLOAD_LEN_LEGACY_TO_EOF = 0xFFFFu,
   LOXC_HEADER_MAX_EXACT_PAYLOAD_LEN = 0xFFFEu,
   LOXC_HEADER_OFFSET_MODULE_ID = 3u,
@@ -33,12 +38,14 @@ enum {
 };
 
 #define LOXC_FLAG_EMBEDDED_TABLE 0x04u
+#define LOXC_CONTAINER_FLAG_EMBEDDED_TABLE LOXC_FLAG_EMBEDDED_TABLE
 
-typedef enum {
-  LOXC_STRATEGY_FLAT_FIXED_WIDTH = 0,
-  LOXC_STRATEGY_HIERARCHICAL_8   = 1,
-  LOXC_STRATEGY_HIERARCHICAL_4   = 2,
-} loxc_strategy_t;
+typedef uint8_t loxc_strategy_t;
+enum {
+  LOXC_STRATEGY_FLAT_FIXED_WIDTH = 0u,
+  LOXC_STRATEGY_HIERARCHICAL_8 = 1u,
+  LOXC_STRATEGY_HIERARCHICAL_4 = 2u
+};
 
 typedef struct {
   uint8_t  module_id;
@@ -62,5 +69,9 @@ int loxc_header_resolve_payload_len(const loxc_header_t *h,
 int loxc_reader_finish_zero_padding(loxc_reader_t *r);
 
 uint32_t loxc_crc32(const uint8_t *data, size_t len);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif /* LOXC_BASE_H */

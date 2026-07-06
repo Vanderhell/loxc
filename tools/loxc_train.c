@@ -52,6 +52,67 @@ static void name_to_upper(const char *in, char *out, size_t out_cap) {
   out[i] = '\0';
 }
 
+static const char *generated_timestamp(void) {
+  static char buf[32];
+  const char *epoch_env = getenv("SOURCE_DATE_EPOCH");
+  unsigned long long epoch = 0ull;
+  time_t t = 0;
+  struct tm tm_utc;
+
+  memset(buf, 0, sizeof(buf));
+  if (epoch_env != NULL && epoch_env[0] != '\0') {
+    char *endptr = NULL;
+    epoch = strtoull(epoch_env, &endptr, 10);
+    if (endptr == NULL || *endptr != '\0') {
+      epoch = 0ull;
+    }
+  }
+  t = (time_t)epoch;
+  {
+    struct tm *tm_ptr = gmtime(&t);
+    if (tm_ptr != NULL) {
+      tm_utc = *tm_ptr;
+      if (strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S UTC", &tm_utc) > 0u) {
+        return buf;
+      }
+    }
+  }
+  return "1970-01-01 00:00:00 UTC";
+}
+
+static int build_output_path(const char *output, const char *ext,
+                             char *out, size_t out_cap) {
+  int n = 0;
+  if (output == NULL || ext == NULL || out == NULL || out_cap == 0u) {
+    return 1;
+  }
+  n = snprintf(out, out_cap, "%s%s", output, ext);
+  if (n < 0 || (size_t)n >= out_cap) return 1;
+  return 0;
+}
+
+static const char *basename_of_path(const char *path) {
+  const char *base = NULL;
+  const char *base_win = NULL;
+  if (path == NULL) return NULL;
+  base = strrchr(path, '/');
+  base_win = strrchr(path, '\\');
+  if (base_win != NULL && (base == NULL || base_win > base)) base = base_win;
+  return (base == NULL) ? path : base + 1;
+}
+
+static void sort_input_paths(const char *inputs[], size_t input_count) {
+  for (size_t i = 1; i < input_count; i++) {
+    const char *key = inputs[i];
+    size_t j = i;
+    while (j > 0 && strcmp(inputs[j - 1], key) > 0) {
+      inputs[j] = inputs[j - 1];
+      j--;
+    }
+    inputs[j] = key;
+  }
+}
+
 static uint8_t bits_needed_u32(uint32_t n) {
   if (n <= 1u) return 1;
   uint8_t bits = 0;
@@ -461,7 +522,10 @@ static int write_loxctab_from_emit(const char *output,
                                    uint16_t level_count,
                                    uint32_t *out_table_fingerprint) {
   char tab_path[512];
-  snprintf(tab_path, sizeof(tab_path), "%s.loxctab", output);
+  if (build_output_path(output, ".loxctab", tab_path, sizeof(tab_path)) != 0) {
+    fprintf(stderr, "Error: output path too long\n");
+    return 1;
+  }
 
   uint32_t *dict_offsets =
       (uint32_t *)malloc((dict_count + 1u) * sizeof(uint32_t));
@@ -535,7 +599,7 @@ static int write_loxctab_from_emit(const char *output,
   return rc;
 }
 
-static int generate_c_file_flat(const char *input, size_t data_len,
+static int generate_c_file_flat(const char *output_prefix, const char *input, size_t data_len,
                                 const char *module_name,
                                 const char *name_upper,
                                 const char *generated_at,
@@ -549,7 +613,7 @@ static int generate_c_file_flat(const char *input, size_t data_len,
                                 const uint32_t *symbol_to_dict_index,
                                 const char *func_prefix);
 
-static int generate_c_file_hier(const char *input, size_t data_len,
+static int generate_c_file_hier(const char *output_prefix, const char *input, size_t data_len,
                                 const char *module_name,
                                 const char *name_upper,
                                 const char *generated_at,
@@ -683,7 +747,7 @@ static int evaluate_strategy(const loxc_freq_entry_t *freqs,
   return 0;
 }
 
-static int generate_c_file_hier(const char *input, size_t data_len,
+static int generate_c_file_hier(const char *output_prefix, const char *input, size_t data_len,
                                 const char *module_name,
                                 const char *name_upper,
                                 const char *generated_at,
@@ -704,7 +768,12 @@ static int generate_c_file_hier(const char *input, size_t data_len,
   if (hier == NULL) return 1;
 
   char source_path[512];
-  snprintf(source_path, sizeof(source_path), "modules/loxc_%s.c", module_name);
+  const char *header_stem = basename_of_path(output_prefix);
+  if (header_stem == NULL) return 1;
+  if (build_output_path(output_prefix, ".c", source_path, sizeof(source_path)) != 0) {
+    fprintf(stderr, "Error: output path too long\n");
+    return 1;
+  }
 
   FILE *cfile = fopen(source_path, "w");
   if (cfile == NULL) {
@@ -719,7 +788,7 @@ static int generate_c_file_hier(const char *input, size_t data_len,
           " * Generated: %s\n"
           " */\n\n",
           input, data_len, generated_at);
-  fprintf(cfile, "#include \"loxc_%s.h\"\n", module_name);
+  fprintf(cfile, "#include \"%s.h\"\n", header_stem);
   fprintf(cfile, "#include \"loxc.h\"\n");
   fprintf(cfile, "#include \"loxc_stream.h\"\n");
   fprintf(cfile, "#include \"loxc_strategy.h\"\n");
@@ -1069,7 +1138,7 @@ static int generate_c_file_hier(const char *input, size_t data_len,
   return 0;
 }
 
-static int generate_c_file_flat(const char *input, size_t data_len,
+static int generate_c_file_flat(const char *output_prefix, const char *input, size_t data_len,
                                 const char *module_name,
                                 const char *name_upper,
                                 const char *generated_at,
@@ -1088,7 +1157,12 @@ static int generate_c_file_flat(const char *input, size_t data_len,
   const size_t dict_emit_count = (dict_count > 0) ? dict_count : 1;
 
   char source_path[512];
-  snprintf(source_path, sizeof(source_path), "modules/loxc_%s.c", module_name);
+  const char *header_stem = basename_of_path(output_prefix);
+  if (header_stem == NULL) return 1;
+  if (build_output_path(output_prefix, ".c", source_path, sizeof(source_path)) != 0) {
+    fprintf(stderr, "Error: output path too long\n");
+    return 1;
+  }
 
   FILE *cfile = fopen(source_path, "w");
   if (cfile == NULL) {
@@ -1105,7 +1179,7 @@ static int generate_c_file_flat(const char *input, size_t data_len,
           " */\n\n",
           input, data_len, generated_at);
 
-  fprintf(cfile, "#include \"loxc_%s.h\"\n", module_name);
+  fprintf(cfile, "#include \"%s.h\"\n", header_stem);
   fprintf(cfile, "#include \"loxc.h\"\n");
   fprintf(cfile, "#include \"loxc_stream.h\"\n");
   fprintf(cfile, "#include \"loxc_strategy.h\"\n");
@@ -1921,6 +1995,8 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
+  sort_input_paths(inputs, input_count);
+
   uint8_t *data = NULL;
   size_t data_len = 0;
   if (load_input_files(inputs, input_count, &data, &data_len) != 0) {
@@ -2094,9 +2170,17 @@ int main(int argc, char *argv[]) {
   /* KROK 4: Generate .h header file */
   printf("\n=== KROK 4: Header File Generation ===\n");
 
-  /* Create output path: modules/loxc_<module_name>.h */
+  /* Create output path: <output>.h */
   char header_path[512];
-  snprintf(header_path, sizeof(header_path), "modules/loxc_%s.h", module_name);
+  if (build_output_path(output, ".h", header_path, sizeof(header_path)) != 0) {
+    fprintf(stderr, "Error: output path too long\n");
+    loxc_hier_free(&hier);
+    free(freqs);
+    free_symbol_recs(symbols, symbol_count);
+    free(symbols);
+    free(data);
+    return 1;
+  }
 
   FILE *hfile = fopen(header_path, "w");
   if (hfile == NULL) {
@@ -2136,14 +2220,8 @@ int main(int argc, char *argv[]) {
   const uint32_t levels =
       (result.strategy != LOXC_STRATEGY_FLAT_FIXED_WIDTH) ? (uint32_t)hier.level_count : 0u;
 
-  time_t now = time(NULL);
-  struct tm *lt = localtime(&now);
   char generated_at[64];
-  if (lt != NULL) {
-    strftime(generated_at, sizeof(generated_at), "%Y-%m-%d %H:%M:%S", lt);
-  } else {
-    snprintf(generated_at, sizeof(generated_at), "%s", __DATE__);
-  }
+  snprintf(generated_at, sizeof(generated_at), "%s", generated_timestamp());
 
   /* Write header file */
   fprintf(hfile, "#ifndef %s\n", guard_name);
@@ -2277,7 +2355,7 @@ int main(int argc, char *argv[]) {
                                      (uint8_t)result.strategy, 0u, 0u, 0u,
                                      &table_fingerprint);
     if (gen_rc == 0) {
-      gen_rc = generate_c_file_flat(input_desc, data_len, module_name, name_upper,
+      gen_rc = generate_c_file_flat(output, input_desc, data_len, module_name, name_upper,
                                     generated_at, module_id, table_fingerprint,
                                     symbols, symbol_count,
                                     dict_emit, dict_count, byte_to_symbol,
@@ -2356,7 +2434,7 @@ int main(int argc, char *argv[]) {
                                      (uint16_t)hier.level_count,
                                      &table_fingerprint);
     if (gen_rc == 0) {
-      gen_rc = generate_c_file_hier(input_desc, data_len, module_name, name_upper,
+      gen_rc = generate_c_file_hier(output, input_desc, data_len, module_name, name_upper,
                                     generated_at, module_id, table_fingerprint,
                                     result.strategy,
                                     symbols, symbol_count,

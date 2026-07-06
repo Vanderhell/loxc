@@ -1,7 +1,7 @@
 #include "loxc_base.h"
 
 const uint8_t *loxc_magic_bytes(void) {
-  return LOXC_MAGIC;
+  return LOXC_CONTAINER_MAGIC_BYTES;
 }
 
 static int loxc__strategy_validate(uint8_t strategy_id, uint16_t level_count) {

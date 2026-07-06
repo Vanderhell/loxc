@@ -6,6 +6,10 @@
 
 #include "loxc.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct loxc_ctx loxc_ctx_t;
 
 typedef void *(*loxc_simple_alloc_fn)(void *user_data, size_t size);
@@ -54,5 +58,9 @@ void loxc_buffer_free(loxc_buffer_t *buf);
 
 const char *loxc_strerror(int error_code);
 int loxc_check_file(const char *path);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif /* LOXC_SIMPLE_H */

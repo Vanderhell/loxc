@@ -10,7 +10,9 @@ PROJECT_CPPFLAGS := -Iinclude
 MODULE_CPPFLAGS := $(PROJECT_CPPFLAGS) -Imodules
 
 LIB      := libloxc.a
-SRC_OBJS := \
+LIB_EMBEDDED := libloxc_embedded.a
+
+CORE_OBJS := \
 	src/loxc.o \
 	src/loxc_base.o \
 	src/loxc_plain.o \
@@ -18,9 +20,15 @@ SRC_OBJS := \
 	src/loxc_dict.o \
 	src/loxc_stream.o \
 	src/loxc_strategy.o \
-	src/loxc_hier.o \
+	src/loxc_hier.o
+
+HOST_OBJS := \
 	src/loxc_loader.o \
 	src/loxc_simple.o
+
+SRC_OBJS := \
+	$(CORE_OBJS) \
+	$(HOST_OBJS)
 
 TOOLS := \
 	tools/loxc_train \
@@ -53,13 +61,21 @@ TESTS := \
 	tests/test_loader \
 	tests/test_train_demo
 
-.PHONY: all test bench examples fuzz clean
+.PHONY: all test bench examples fuzz clean host embedded
 
-all: $(LIB) $(TOOLS) $(TESTS)
+all: $(LIB) $(LIB_EMBEDDED) $(TOOLS) $(TESTS)
 
 $(LIB): $(SRC_OBJS)
 	$(AR) rcs $@ $^
 	-$(RANLIB) $@
+
+$(LIB_EMBEDDED): $(CORE_OBJS)
+	$(AR) rcs $@ $^
+	-$(RANLIB) $@
+
+host: $(LIB)
+
+embedded: $(LIB_EMBEDDED)
 
 src/%.o: src/%.c
 	$(CC) $(CPPFLAGS) $(PROJECT_CPPFLAGS) $(CFLAGS) -c -o $@ $<
@@ -142,4 +158,4 @@ bench-clean:
 examples: $(EXAMPLES)
 
 clean:
-	$(RM) $(SRC_OBJS) $(LIB) $(TOOLS) $(TESTS) $(EXAMPLES) $(FUZZERS) modules/loxc_demo.o tools/loxc_bench2
+	$(RM) $(SRC_OBJS) $(LIB) $(LIB_EMBEDDED) $(TOOLS) $(TESTS) $(EXAMPLES) $(FUZZERS) modules/loxc_demo.o tools/loxc_bench2

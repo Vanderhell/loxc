@@ -3,8 +3,14 @@
 
 #include "loxc.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define LOXC_TAB_MAGIC "LOXT"  /* 4 bytes */
-#define LOXC_TAB_VERSION 2
+#define LOXC_TAB_MAGIC_PREFIX_SIZE 4u
+#define LOXC_TAB_VERSION 2u
+#define LOXC_TAB_VERSION_CURRENT LOXC_TAB_VERSION
 #define LOXC_TAB_HEADER_SIZE 64u
 #define LOXC_TAB_TRAILER_SIZE 4u
 #define LOXC_TAB_MAX_NAME_LEN 32u
@@ -75,5 +81,9 @@ int loxc_module_load_from_memory_ex(const uint8_t *buf, size_t buf_size,
  * LOXC_ERR_INVALID_MODULE for static/generated modules.
  */
 int loxc_module_unload(loxc_module_t *module);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif /* LOXC_TAB_H */

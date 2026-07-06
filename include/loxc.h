@@ -6,6 +6,10 @@
 
 #include "loxc_types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct loxc_module {
   const char *name;
   const char *table_name;
@@ -51,5 +55,9 @@ int loxc_module_get_table_blob(const loxc_module_t *module,
 
 int loxc_decompress(const uint8_t *input, size_t input_len, char *output,
                     size_t *output_capacity, size_t *output_actual);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif /* LOXC_H */

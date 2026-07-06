@@ -51,6 +51,15 @@ static uint64_t writer_bits_used(const loxc_writer_t *w) {
   return (uint64_t)w->byte_pos * 8u + (uint64_t)w->bit_pos;
 }
 
+static size_t alloc_bits_buffer_size(uint64_t estimated_bits) {
+  size_t cap = 0u;
+  if (estimated_bits == UINT64_MAX) return 0u;
+  cap = (size_t)((estimated_bits + 7u) / 8u);
+  cap += 1024u;
+  if (cap < 4096u) cap = 4096u;
+  return cap;
+}
+
 static uint8_t bits_needed_u32(uint32_t n) {
   uint8_t bits = 0u;
   uint32_t v = (n <= 1u) ? 1u : (n - 1u);
@@ -63,28 +72,40 @@ static uint8_t bits_needed_u32(uint32_t n) {
 
 static uint64_t encode_flat_bits(const loxc_freq_entry_t *freqs, size_t n) {
   const uint8_t sym_bits = bits_needed_u32((uint32_t)n + 1u);
-  uint8_t buffer[65536];
+  const uint64_t estimated_bits = loxc_strategy_cost_flat_with_raw(freqs, n);
+  const size_t cap = alloc_bits_buffer_size(estimated_bits);
+  uint8_t *buffer = (uint8_t *)malloc(cap);
   loxc_writer_t w;
-  assert(loxc_writer_init(&w, buffer, sizeof(buffer)) == LOXC_OK);
+  assert(buffer != NULL);
+  assert(loxc_writer_init(&w, buffer, cap) == LOXC_OK);
 
   for (size_t i = 0; i < n; i++) {
     for (uint64_t c = 0; c < freqs[i].count; c++) {
       assert(loxc_write_bits(&w, freqs[i].symbol_id, sym_bits) == LOXC_OK);
     }
   }
-  return writer_bits_used(&w);
+  {
+    const uint64_t bits = writer_bits_used(&w);
+    free(buffer);
+    return bits;
+  }
 }
 
 static uint64_t encode_hier_bits(const loxc_freq_entry_t *freqs, size_t n,
                                  loxc_strategy_t strategy,
                                  uint16_t *out_level_count) {
-  uint8_t buffer[65536];
+  uint64_t estimated_bits = loxc_strategy_cost_hierarchical(freqs, n, strategy, NULL);
+  size_t cap = alloc_bits_buffer_size(estimated_bits);
+  uint8_t *buffer = NULL;
   loxc_writer_t w;
   loxc_hier_t h;
+  uint64_t bits = 0u;
 
   memset(&h, 0, sizeof(h));
   assert(loxc_hier_build(freqs, n, strategy, &h) == LOXC_OK);
-  assert(loxc_writer_init(&w, buffer, sizeof(buffer)) == LOXC_OK);
+  buffer = (uint8_t *)malloc(cap);
+  assert(buffer != NULL);
+  assert(loxc_writer_init(&w, buffer, cap) == LOXC_OK);
 
   for (size_t i = 0; i < n; i++) {
     for (uint64_t c = 0; c < freqs[i].count; c++) {
@@ -93,11 +114,10 @@ static uint64_t encode_hier_bits(const loxc_freq_entry_t *freqs, size_t n,
   }
 
   if (out_level_count != NULL) *out_level_count = h.level_count;
-  {
-    const uint64_t bits = writer_bits_used(&w);
-    loxc_hier_free(&h);
-    return bits;
-  }
+  bits = writer_bits_used(&w);
+  loxc_hier_free(&h);
+  free(buffer);
+  return bits;
 }
 
 static void make_zipfian(loxc_freq_entry_t *out, size_t n, uint64_t total) {

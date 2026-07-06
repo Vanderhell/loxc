@@ -9,6 +9,10 @@
 #include "loxc_strategy.h"
 #include "loxc_types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Hierarchical symbol encoder/decoder state */
 typedef struct {
   loxc_strategy_t strategy;
@@ -50,5 +54,9 @@ int loxc_hier_decode(
 
 /* Free internal allocations. */
 void loxc_hier_free(loxc_hier_t *h);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif /* LOXC_HIER_H */

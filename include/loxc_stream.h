@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   uint8_t *buf;
   size_t cap;
@@ -30,5 +34,9 @@ int loxc_read_bit(loxc_reader_t *r, uint8_t *out);
 int loxc_read_bits(loxc_reader_t *r, uint8_t n, uint32_t *out);
 int loxc_read_bytes(loxc_reader_t *r, uint8_t *out, size_t len);
 int loxc_reader_eof(const loxc_reader_t *r);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif /* LOXC_STREAM_H */

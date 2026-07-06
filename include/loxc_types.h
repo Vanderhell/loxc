@@ -4,7 +4,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef enum {
+typedef int loxc_err_t;
+
+enum {
   LOXC_OK = 0,
   LOXC_ERR_NULL = 1,
   LOXC_ERR_TRUNCATED = 2,
@@ -18,12 +20,16 @@ typedef enum {
   LOXC_ERR_INVALID_MODULE = 10,
   LOXC_ERR_BUSY = 11,
   LOXC_ERR_ALLOC = 12
-} loxc_err_t;
+};
 
 /*
  * Serialized .loxc files begin with the three-byte ASCII prefix "LXC".
  * The fourth serialized byte is the module id, not part of the magic prefix.
  */
-static const uint8_t LOXC_MAGIC[3] = { 'L', 'X', 'C' };
+enum {
+  LOXC_CONTAINER_MAGIC_PREFIX_SIZE = 3u
+};
+static const uint8_t LOXC_CONTAINER_MAGIC_BYTES[LOXC_CONTAINER_MAGIC_PREFIX_SIZE] =
+    { 'L', 'X', 'C' };
 
 #endif /* LOXC_TYPES_H */

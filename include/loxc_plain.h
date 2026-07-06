@@ -6,6 +6,10 @@
 
 #include "loxc_matrix.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 enum {
   LOXC_MODULE_PLAIN = 0x01
 };
@@ -25,5 +29,9 @@ int loxc_plain_encode(const uint8_t *in, size_t in_len, uint8_t *out,
                       size_t out_cap, size_t *out_len);
 int loxc_plain_decode(const uint8_t *in, size_t in_len, uint8_t *out,
                       size_t out_cap, size_t *out_len);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif /* LOXC_PLAIN_H */

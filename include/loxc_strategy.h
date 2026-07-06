@@ -6,6 +6,10 @@
 
 #include "loxc_base.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
   uint32_t symbol_id;
   uint64_t count;
@@ -61,5 +65,9 @@ uint64_t loxc_strategy_cost_hierarchical(
     loxc_strategy_t strategy,
     uint16_t *out_level_count
 );
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif /* LOXC_STRATEGY_H */

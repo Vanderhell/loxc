@@ -7,6 +7,10 @@
 #include "loxc_stream.h"
 #include "loxc_types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* A single matrix level */
 typedef struct {
   uint8_t bits; /* how many bits this level consumes (e.g. 3 -> 8 cells) */
@@ -39,5 +43,9 @@ int loxc_matrix_decode(const loxc_matrix_t *m, loxc_reader_t *r,
                        loxc_matrix_value_t *out);
 int loxc_matrix_encode(const loxc_matrix_t *m, uint32_t codepoint,
                        loxc_writer_t *w);
+
+#ifdef __cplusplus
+} /* extern "C" */
+#endif
 
 #endif /* LOXC_MATRIX_H */
