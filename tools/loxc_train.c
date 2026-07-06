@@ -566,7 +566,7 @@ static int write_loxctab_from_emit(const char *output,
   size_t pos = 0;
   uint32_t table_fingerprint = 0u;
   for (size_t i = 0; i < dict_count; i++) {
-    if (dict_emit[i].len > 0) {
+    if (dict_data != NULL && dict_emit[i].len > 0) {
       memcpy(dict_data + pos, dict_emit[i].bytes, dict_emit[i].len);
       pos += dict_emit[i].len;
     }
@@ -629,7 +629,7 @@ static int generate_c_file_hier(const char *output_prefix, const char *input, si
                                 const char *func_prefix,
                                 const loxc_hier_t *hier);
 
-static int parse_args(int argc, char *const argv[], const char *inputs[],
+static int parse_args(int argc, const char *const argv[], const char *inputs[],
                       size_t *input_count,
                       const char **output, const char **module_name,
                       uint8_t *module_id) {
@@ -1576,7 +1576,14 @@ static int load_input_files(const char *inputs[], size_t input_count,
     }
 
     size_t nread = 0;
-    if (size > 0) nread = fread(data + offset, 1, size, fp);
+    if (size > 0) {
+      if (data == NULL) {
+        fclose(fp);
+        free(data);
+        return 1;
+      }
+      nread = fread(data + offset, 1, size, fp);
+    }
     fclose(fp);
     if (nread != size) {
       fprintf(stderr, "Error: read %zu bytes from %s, expected %zu\n",
@@ -1803,6 +1810,7 @@ static int analyze_freqs(const uint8_t *data, size_t data_len,
       (symbol_rec_t *)malloc(symbol_cap * sizeof(symbol_rec_t));
   if (symbols == NULL) {
     fprintf(stderr, "Error: malloc symbols\n");
+    free(accepted_mask);
     loxc_dict_free(&dict);
     return 1;
   }
@@ -1937,7 +1945,7 @@ static int analyze_freqs(const uint8_t *data, size_t data_len,
         printf("\nDict entries (bottom 20):\n");
         printf("  ID | Entry          | Count | Gain (bits)\n");
         printf("-----+----------------+-------+------------\n");
-        size_t start = dict.count > 20 ? dict.count - 20 : 0;
+        size_t start = dict.count - 20;
         for (size_t i = start; i < dict.count; i++) {
           printf("%4zu | %-14.*s | %5llu | %10lld\n", i,
                  (int)(dict_sorted[i].word_len < 14 ? dict_sorted[i].word_len

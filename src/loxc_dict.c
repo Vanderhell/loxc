@@ -76,11 +76,11 @@ static int loxc__dict_has_duplicate_word(const loxc_dict_t *dict,
 
 static int loxc__dict_validate_refs(const loxc_dict_t *dict,
                                     uint16_t *out_stored) {
+  if (dict == NULL) return LOXC_ERR_NULL;
+  const uint32_t max_refs = (dict->ref_bytes == 1u) ? 256u : 65536u;
   uint8_t *seen = NULL;
   uint16_t stored = 0u;
 
-  if (dict == NULL) return LOXC_ERR_NULL;
-  const uint32_t max_refs = (dict->ref_bytes == 1u) ? 256u : 65536u;
   if (dict->ref_bytes != 1u && dict->ref_bytes != 2u) return LOXC_ERR_INVALID_FORMAT;
   if (dict->count > 0u && dict->entries == NULL) return LOXC_ERR_INVALID_FORMAT;
 

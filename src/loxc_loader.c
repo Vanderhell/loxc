@@ -958,14 +958,12 @@ int loxc_module_load_from_file_ex(const char *path,
     fclose(f);
     return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 0u, "empty loxctab file");
   }
-  if (file_size > 0u) {
-    buf = (uint8_t *)malloc(file_size);
-    if (buf == NULL) {
-      fclose(f);
-      return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 0u, "failed to allocate loxctab file buffer");
-    }
-    nread = fread(buf, 1, file_size, f);
+  buf = (uint8_t *)malloc(file_size);
+  if (buf == NULL) {
+    fclose(f);
+    return loxc__tab_fail(out_error, LOXC_ERR_OVERFLOW, 0u, "failed to allocate loxctab file buffer");
   }
+  nread = fread(buf, 1, file_size, f);
   fclose(f);
   if (nread != file_size) {
     free(buf);
