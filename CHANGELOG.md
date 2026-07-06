@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - (future features)
 
+### Changed
+- README and docs now scope performance claims to measured builds
+- Benchmark docs now include pinned corpus and table hashes
+- Simple API now exposes `loxc_check_file_ex()` metadata
+
+### Fixed
+- Example snippets now check errors and free buffers before exit
+
 ## [0.2.4] - 2026-05-14
 
 ### Fixed

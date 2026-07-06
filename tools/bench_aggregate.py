@@ -67,11 +67,16 @@ def loxc_rows_as_records(loxc_rows, module):
     """Convert loxc_bench2 rows into the same shape as baseline rows."""
     out = []
     for r in loxc_rows:
-        if r.get("unsupported") == "1":
+        if r.get("unsupported") in ("1", "true", "True"):
             continue
-        raw = int(r["raw_bytes"])
+        raw_text = r.get("raw_bytes", "")
+        ext_text = r.get("enc_external_bytes", "")
+        emb_text = r.get("enc_embedded_bytes", "")
+        if not raw_text or not ext_text or not emb_text:
+            continue
+        raw = int(raw_text)
         # external mode
-        ext_bytes = int(r["enc_external_bytes"])
+        ext_bytes = int(ext_text)
         out.append({
             "path": r["path"],
             "raw_bytes": raw,
@@ -87,7 +92,7 @@ def loxc_rows_as_records(loxc_rows, module):
             "dec_p95_ms": float(r["dec_p95_ms"]),
         })
         # embedded mode (self-contained .loxc)
-        emb_bytes = int(r["enc_embedded_bytes"])
+        emb_bytes = int(emb_text)
         out.append({
             "path": r["path"],
             "raw_bytes": raw,

@@ -1,6 +1,6 @@
 # loxc
 
-> **Train a compression model on your text. Ship it. Compress and decompress at hardware speed.**
+> **Train a compression model on your text. Ship it. Compress and decompress with table-driven decode.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![C99](https://img.shields.io/badge/C-99-blue.svg)](https://en.wikipedia.org/wiki/C99)
@@ -9,6 +9,7 @@
 
 A trainable, frequency-optimized text codec in pure C99.
 Made for embedded systems, log pipelines, and any domain-specific text.
+`loxc` belongs to the Liquid Oxygen (LOX) ecosystem, and LOX means Liquid Oxygen.
 
 ## At a glance
 
@@ -18,8 +19,8 @@ Encoded:           29 bytes  (67% of original)
 Decode:            < 0.1 ms
 Compression ratio: ~60% on the bundled sample text corpus
 Decode speed:      ~8x faster than encode
-Decoder size:      ~5 KB compiled
-Dependencies:      none (pure C99)
+Decoder size:      compiler/flags dependent; see benchmark notes
+Runtime deps:      standard C library only
 ```
 
 ## Language agnostic
@@ -41,8 +42,14 @@ matching corpus.
 
 ```c
 loxc_ctx_t *ctx = loxc_open("modules/loxc_demo.loxctab");
-loxc_buffer_t out = loxc_compress_buffer(ctx, "Hello world!", 12, 0);
-loxc_close(ctx);
+if (ctx != NULL) {
+    loxc_buffer_t out = loxc_compress_buffer(ctx, "Hello world!", 12, 0);
+    if (out.error == LOXC_OK) {
+        /* use out.data / out.size */
+        loxc_buffer_free(&out);
+    }
+    loxc_close(ctx);
+}
 ```
 
 That's it. `out.data` now holds compressed bytes.
@@ -54,7 +61,7 @@ That's it. `out.data` now holds compressed bytes.
 ### Built for
 
 - **Domain-specific text**: JSON APIs, log lines, URL paths, localization files
-- **Embedded systems**: small decoder, no heavyweight runtime dependencies
+- **Embedded systems**: small decoder and standard-library runtime footprint
 - **Repeated payloads**: train once on your corpus, compress millions of similar messages
 - **Predictable latency**: decode is table-driven, not entropy-decoder heavy
 
@@ -108,7 +115,24 @@ Measured with `make bench-full` on the current benchmark suite:
 - CPU: `Intel(R) Xeon(R) CPU E5-2690 v4 @ 2.60GHz`
 - OS: `Linux 6.6.87.2-microsoft-standard-WSL2`
 - Compiler: `cc 13.3.0`
+- Flags: `-std=c99 -Wall -Wextra -O2`
 - Iterations: `100` after warmup
+
+Benchmark inputs and generated tables for this run are pinned by SHA-256:
+
+| Kind | Path | SHA-256 |
+|------|------|---------|
+| corpus | `trainings/demo_corpus.txt` | `A5666F87ABF2CBFDAA27EA8C73BD284DA9649B9A2AB27B4E6C8F6AEAB1BD1C88` |
+| corpus | `benchmarks/plain_sample_text.txt` | `A391E53B317797193E7A74046B6F23D9BF5722895342D420CFD4912534093766` |
+| corpus | `benchmarks/corpora/json_test.json` | `0F6AD0ACCA7471D993A6D24B0E627A041C1FC874AC48070DF26A9BB817CCAAFE` |
+| corpus | `benchmarks/corpora/logs_test.txt` | `0FFE53F3673367613F2BCA123305FE4CC3FA7C79C123DC8952A044A9642557C7` |
+| corpus | `benchmarks/corpora/csrc_test.c` | `902C48806C805A77DB88035C642AD710A6BF7AA3B548217FF121FC6E813B6C0E` |
+| corpus | `benchmarks/corpora/text_1024.txt` | `E91B2D8900A1E2376A23AB70201E69532623F3A06880CDF1FF926F33EEB9E3DF` |
+| corpus | `benchmarks/corpora/text_524288.txt` | `5BFE6457877AA94C9407F454D15F5C5E351796E147403A161C6F1839A8142B50` |
+| table | `modules/loxc_demo.loxctab` | `91BDEE3792F67CA6EB0104A29562384C3E724A499F4019C27577759717A97BAB` |
+| table | `modules/loxc_json.loxctab` | `6D19A0B2BE3E77FC9FCBADA3F4D580083E0BE5576415E7F7D1684D9C16E9EB68` |
+| table | `modules/loxc_logs.loxctab` | `CE203E2FDBB1D48BF9DA8CDA190AE58967077E375AEE80BE774D869180A831BD` |
+| table | `modules/loxc_csrc.loxctab` | `E29A120117C87C157F927369D945DC05C055FF480015C04F17020D287F45C16D` |
 
 ### Bundled sample-text module
 

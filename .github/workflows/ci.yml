@@ -47,6 +47,69 @@ jobs:
       - name: Run hello world example
         run: ./examples/01_hello_world
 
+  package:
+    name: Package and consumers (Ubuntu, gcc/g++)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential
+
+      - name: Build package set
+        env:
+          CC: gcc
+          CXX: g++
+        run: make package
+
+  sanitize:
+    name: Sanitizers (Ubuntu, clang)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential clang
+
+      - name: Build and test with sanitizers
+        env:
+          CC: clang
+          CXX: clang++
+        run: make sanitize
+
+  analyze:
+    name: Static analysis (Ubuntu, clang-tidy/cppcheck/fanalyzer)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential clang clang-tidy cppcheck
+
+      - name: Run clang static analysis
+        run: make analyze
+
+  fuzz:
+    name: Fuzz harness smoke (Ubuntu, clang)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential clang
+
+      - name: Build fuzz harness
+        env:
+          CC: clang
+        run: make fuzz
+
+      - name: Run fuzz seeds
+        run: ./fuzz/loxc_tab_fuzz fuzz/seeds/*.loxctab
+
   test-macos:
     name: Test (macOS)
     runs-on: macos-latest

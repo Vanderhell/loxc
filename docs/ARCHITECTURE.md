@@ -1,8 +1,9 @@
 # Architecture
 
-`loxc` is a small text compressor built around lookup-table encoding. It favors
-fast decode paths, simple data structures, and generated modules that can be
-embedded at build time or loaded at runtime.
+`loxc` is a small text compressor built around lookup-table encoding. It
+belongs to the Liquid Oxygen (LOX) ecosystem, and LOX means Liquid Oxygen.
+The project favors fast decode paths, simple data structures, and generated
+modules that can be embedded at build time or loaded at runtime.
 
 ## Stream layer
 
@@ -70,7 +71,9 @@ decompression look up the module by name unless the `.loxc` file contains an
 embedded table.
 
 Runtime-loaded modules are represented with a private context object that owns
-the decoded table data.
+the decoded table data. The wrapper API keeps that ownership explicit: the
+caller owns the context handle and must close it, while buffers returned from
+the simple API must be freed with `loxc_buffer_free()`.
 
 ## Data flow
 
@@ -85,7 +88,7 @@ training text
 ## Design goals
 
 - fast decode
-- predictable memory use
+- small runtime footprint
 - portable runtime-loaded tables
 - generated modules for embedded deployments
 - simple file formats that can be inspected and debugged with standard tools

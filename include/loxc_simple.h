@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "loxc.h"
+#include "loxc_base.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,6 +34,22 @@ typedef struct {
   loxc_simple_free_fn free_fn;
 } loxc_buffer_t;
 
+typedef struct {
+  int rc;
+  int os_errno;
+  size_t file_size;
+  size_t header_size;
+  int embedded;
+  uint8_t module_id;
+  uint8_t version;
+  uint8_t flags;
+  uint8_t strategy_id;
+  uint16_t payload_len;
+  uint16_t level_count;
+  uint32_t uncompressed_len;
+  uint32_t table_fingerprint;
+} loxc_check_file_result_t;
+
 /*
  * Threading contract:
  * - independent loxc_ctx_t instances may be used independently, but this is
@@ -58,6 +75,7 @@ void loxc_buffer_free(loxc_buffer_t *buf);
 
 const char *loxc_strerror(int error_code);
 int loxc_check_file(const char *path);
+int loxc_check_file_ex(const char *path, loxc_check_file_result_t *out_result);
 
 #ifdef __cplusplus
 } /* extern "C" */

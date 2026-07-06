@@ -10,21 +10,27 @@ Common recipes. Copy, adapt, and keep moving.
 #include "loxc_simple.h"
 
 loxc_ctx_t *ctx = loxc_open("table.loxctab");
-loxc_buffer_t out = loxc_compress_buffer(ctx, data, len, 0);
-/* use out.data and out.size */
-loxc_buffer_free(&out);
-loxc_close(ctx);
+if (ctx != NULL) {
+    loxc_buffer_t out = loxc_compress_buffer(ctx, data, len, 0);
+    if (out.error == LOXC_OK) {
+        /* use out.data and out.size */
+        loxc_buffer_free(&out);
+    }
+    loxc_close(ctx);
+}
 ```
 
 ### 2. Compress a file
 
 ```c
 loxc_ctx_t *ctx = loxc_open("table.loxctab");
-int rc = loxc_compress_file(ctx, "input.txt", "output.loxc", 0);
-if (rc != LOXC_OK) {
-    fprintf(stderr, "Failed: %s\n", loxc_strerror(rc));
+if (ctx != NULL) {
+    int rc = loxc_compress_file(ctx, "input.txt", "output.loxc", 0);
+    if (rc != LOXC_OK) {
+        fprintf(stderr, "Failed: %s\n", loxc_strerror(rc));
+    }
+    loxc_close(ctx);
 }
-loxc_close(ctx);
 ```
 
 ### 3. Create a self-contained file
@@ -55,6 +61,9 @@ if (loxc_check_file("incoming.loxc") != LOXC_OK) {
     return 1;
 }
 ```
+
+To inspect parsed metadata, use `loxc_check_file_ex()` and read the returned
+`loxc_check_file_result_t` fields.
 
 ### 6. Handle the "symbol not in module" error
 

@@ -1,5 +1,6 @@
 #include "loxc_simple.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -808,24 +809,71 @@ const char *loxc_strerror(int error_code) {
 }
 
 int loxc_check_file(const char *path) {
+  loxc_check_file_result_t result;
+  return loxc_check_file_ex(path, &result);
+}
+
+int loxc_check_file_ex(const char *path, loxc_check_file_result_t *out_result) {
   uint8_t header[19];
   FILE *f = NULL;
   size_t nread = 0u;
+  long file_size = -1;
   loxc_reader_t r;
   loxc_header_t h;
   int rc = LOXC_OK;
 
+  if (out_result != NULL) {
+    memset(out_result, 0, sizeof(*out_result));
+    out_result->rc = LOXC_OK;
+  }
   if (path == NULL) return LOXC_ERR_NULL;
 
   f = fopen(path, "rb");
-  if (f == NULL) return LOXC_ERR_INVALID_FORMAT;
+  if (f == NULL) {
+    if (out_result != NULL) {
+      out_result->rc = LOXC_ERR_INVALID_FORMAT;
+      out_result->os_errno = errno;
+    }
+    return LOXC_ERR_INVALID_FORMAT;
+  }
+  if (fseek(f, 0, SEEK_END) == 0) {
+    file_size = ftell(f);
+    (void)fseek(f, 0, SEEK_SET);
+  }
   nread = fread(header, 1, sizeof(header), f);
+  if (out_result != NULL) {
+    out_result->file_size = (file_size >= 0) ? (size_t)file_size : nread;
+  }
   fclose(f);
 
-  if (nread < LOXC_HEADER_SIZE_V2) return LOXC_ERR_TRUNCATED;
+  if (nread < LOXC_HEADER_SIZE_V2) {
+    if (out_result != NULL) {
+      out_result->rc = LOXC_ERR_TRUNCATED;
+    }
+    return LOXC_ERR_TRUNCATED;
+  }
   rc = loxc_reader_init(&r, header, nread);
-  if (rc != LOXC_OK) return rc;
+  if (rc != LOXC_OK) {
+    if (out_result != NULL) out_result->rc = rc;
+    return rc;
+  }
   rc = loxc_header_read(&r, &h);
-  if (rc != LOXC_OK) return rc;
+  if (rc != LOXC_OK) {
+    if (out_result != NULL) out_result->rc = rc;
+    return rc;
+  }
+  if (out_result != NULL) {
+    out_result->rc = LOXC_OK;
+    out_result->header_size = loxc_header_size(&h);
+    out_result->embedded = ((h.flags & LOXC_FLAG_EMBEDDED_TABLE) != 0);
+    out_result->module_id = h.module_id;
+    out_result->version = h.version;
+    out_result->flags = h.flags;
+    out_result->strategy_id = h.strategy_id;
+    out_result->payload_len = h.payload_len;
+    out_result->level_count = h.level_count;
+    out_result->uncompressed_len = h.uncompressed_len;
+    out_result->table_fingerprint = h.table_fingerprint;
+  }
   return LOXC_OK;
 }

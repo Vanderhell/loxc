@@ -14,6 +14,9 @@ The current integrated benchmark pass (`make bench-full ITER=100`) produced:
 - Memory: `64251 MiB`
 - OS: `Linux 6.6.87.2-microsoft-standard-WSL2 / x86_64`
 - Compiler: `cc 13.3.0`
+- Flags: `-std=c99 -Wall -Wextra -O2`
+- Iterations: `100` timed iterations after `3` warmup iterations
+- Command: `make bench-full ITER=100`
 
 Headline rows from that run:
 
@@ -31,6 +34,22 @@ The full generated report for this run is written to:
 - `bench_out/BENCHMARKS_FULL.md`
 - `bench_out/DOMAIN_WINS.md`
 - `bench_out/merged.csv`
+
+The run is reproducible from the following pinned inputs and module tables:
+
+| Kind | Path | SHA-256 |
+|---|---|---|
+| corpus | `trainings/demo_corpus.txt` | `A5666F87ABF2CBFDAA27EA8C73BD284DA9649B9A2AB27B4E6C8F6AEAB1BD1C88` |
+| corpus | `benchmarks/plain_sample_text.txt` | `A391E53B317797193E7A74046B6F23D9BF5722895342D420CFD4912534093766` |
+| corpus | `benchmarks/corpora/json_test.json` | `0F6AD0ACCA7471D993A6D24B0E627A041C1FC874AC48070DF26A9BB817CCAAFE` |
+| corpus | `benchmarks/corpora/logs_test.txt` | `0FFE53F3673367613F2BCA123305FE4CC3FA7C79C123DC8952A044A9642557C7` |
+| corpus | `benchmarks/corpora/csrc_test.c` | `902C48806C805A77DB88035C642AD710A6BF7AA3B548217FF121FC6E813B6C0E` |
+| corpus | `benchmarks/corpora/text_1024.txt` | `E91B2D8900A1E2376A23AB70201E69532623F3A06880CDF1FF926F33EEB9E3DF` |
+| corpus | `benchmarks/corpora/text_524288.txt` | `5BFE6457877AA94C9407F454D15F5C5E351796E147403A161C6F1839A8142B50` |
+| table | `modules/loxc_demo.loxctab` | `91BDEE3792F67CA6EB0104A29562384C3E724A499F4019C27577759717A97BAB` |
+| table | `modules/loxc_json.loxctab` | `6D19A0B2BE3E77FC9FCBADA3F4D580083E0BE5576415E7F7D1684D9C16E9EB68` |
+| table | `modules/loxc_logs.loxctab` | `CE203E2FDBB1D48BF9DA8CDA190AE58967077E375AEE80BE774D869180A831BD` |
+| table | `modules/loxc_csrc.loxctab` | `E29A120117C87C157F927369D945DC05C055FF480015C04F17020D287F45C16D` |
 
 ## What we measure
 

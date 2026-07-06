@@ -6,6 +6,7 @@
 
 #include "loxc.h"
 #include "loxc_base.h"
+#include "loxc_simple.h"
 #include "loxc_tab.h"
 
 static void usage(FILE *out) {
@@ -351,47 +352,38 @@ static int command_info(int argc, char **argv) {
     return 2;
   }
 
-  uint8_t *input = NULL;
-  size_t input_len = 0;
-  if (read_entire_file(argv[2], &input, &input_len) != 0) return 1;
-
-  loxc_reader_t r;
-  int rc = loxc_reader_init(&r, input, input_len);
+  loxc_check_file_result_t info;
+  int rc = loxc_check_file_ex(argv[2], &info);
   if (rc != LOXC_OK) {
-    fprintf(stderr, "loxc: cannot initialize reader: %s (%d)\n", err_name(rc), rc);
-    free(input);
+    if (info.os_errno != 0) {
+      fprintf(stderr, "loxc: cannot open %s: %s\n", argv[2], strerror(info.os_errno));
+    } else {
+      fprintf(stderr, "loxc: cannot validate %s: %s (%d)\n", argv[2],
+              err_name(rc), rc);
+    }
     return 1;
   }
 
-  loxc_header_t h;
-  rc = loxc_header_read(&r, &h);
-  if (rc != LOXC_OK) {
-    fprintf(stderr, "loxc: cannot read header: %s (%d)\n", err_name(rc), rc);
-    free(input);
-    return 1;
-  }
-
-  size_t header_bytes = loxc_header_size(&h);
+  size_t header_bytes = info.header_size;
   printf("file: %s\n", argv[2]);
   printf("magic_prefix: LXC\n");
   printf("magic_layout: 'L' 'X' 'C' module_id\n");
-  printf("module_id: %u\n", (unsigned)h.module_id);
-  printf("version: %u\n", (unsigned)h.version);
-  print_flags(h.flags);
-  printf("strategy: %s (%u)\n", strategy_name(h.strategy_id),
-         (unsigned)h.strategy_id);
-  printf("payload_len: %u\n", (unsigned)h.payload_len);
-  printf("level_count: %u\n", (unsigned)h.level_count);
-  printf("uncompressed_len: %u\n", (unsigned)h.uncompressed_len);
-  printf("table_fingerprint: 0x%08X\n", (unsigned)h.table_fingerprint);
+  printf("module_id: %u\n", (unsigned)info.module_id);
+  printf("version: %u\n", (unsigned)info.version);
+  print_flags(info.flags);
+  printf("strategy: %s (%u)\n", strategy_name(info.strategy_id),
+         (unsigned)info.strategy_id);
+  printf("payload_len: %u\n", (unsigned)info.payload_len);
+  printf("level_count: %u\n", (unsigned)info.level_count);
+  printf("uncompressed_len: %u\n", (unsigned)info.uncompressed_len);
+  printf("table_fingerprint: 0x%08X\n", (unsigned)info.table_fingerprint);
+  printf("embedded_table: %s\n", info.embedded ? "yes" : "no");
   printf("crc32: unsupported in v2\n");
   printf("header_bytes: %zu\n", header_bytes);
-  printf("file_bytes: %zu\n", input_len);
-  if (input_len >= header_bytes) {
-    printf("payload_bytes: %zu\n", input_len - header_bytes);
+  printf("file_bytes: %zu\n", info.file_size);
+  if (info.file_size >= header_bytes) {
+    printf("payload_bytes: %zu\n", info.file_size - header_bytes);
   }
-
-  free(input);
   return 0;
 }
 

@@ -20,4 +20,8 @@ Please include:
 - steps to reproduce
 - any proof of concept or logs
 
+Parsing and validation code is expected to reject truncated and malformed
+`.loxc` / `.loxctab` inputs; report any case where invalid data is accepted or
+causes a crash.
+
 We aim to respond within 7 days.

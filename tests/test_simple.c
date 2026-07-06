@@ -135,12 +135,42 @@ static void test_simple_error_handling(void) {
 static void test_simple_invalid_file(void) {
   const char *bad_path = "tests/tmp_loxc_simple_invalid.bin";
   const uint8_t bogus[] = {0xFFu, 0x00u, 0xAAu, 0x55u};
+  loxc_check_file_result_t info;
 
   remove_file_if_exists(bad_path);
+  memset(&info, 0, sizeof(info));
+  assert(loxc_check_file_ex("tests/tmp_loxc_does_not_exist.loxc", &info) != LOXC_OK);
+  assert(info.rc != LOXC_OK);
+  assert(info.os_errno != 0);
   assert(loxc_check_file("tests/tmp_loxc_does_not_exist.loxc") != LOXC_OK);
   write_file(bad_path, bogus, sizeof(bogus));
   assert(loxc_check_file(bad_path) != LOXC_OK);
   remove_file_if_exists(bad_path);
+}
+
+static void test_simple_check_file_ex(void) {
+  const char *path = "tests/tmp_loxc_simple_check.loxc";
+  loxc_ctx_t *ctx = loxc_open("modules/loxc_demo.loxctab");
+  loxc_buffer_t encoded;
+  loxc_check_file_result_t info;
+
+  assert(ctx != NULL);
+  encoded = loxc_compress_buffer(ctx, "check file", strlen("check file"), 1);
+  assert(encoded.error == LOXC_OK);
+  write_file(path, encoded.data, encoded.size);
+
+  memset(&info, 0, sizeof(info));
+  assert(loxc_check_file_ex(path, &info) == LOXC_OK);
+  assert(info.rc == LOXC_OK);
+  assert(info.file_size == encoded.size);
+  assert(info.header_size > 0);
+  assert(info.version > 0);
+  assert(info.embedded != 0);
+  assert(info.payload_len > 0);
+
+  loxc_buffer_free(&encoded);
+  loxc_close(ctx);
+  remove_file_if_exists(path);
 }
 
 static void test_simple_multiple_contexts(void) {
@@ -203,6 +233,9 @@ int main(void) {
 
   test_simple_invalid_file();
   puts("test_simple: PASS (invalid file)");
+
+  test_simple_check_file_ex();
+  puts("test_simple: PASS (check_file_ex)");
 
   test_simple_multiple_contexts();
   puts("test_simple: PASS (multiple contexts)");

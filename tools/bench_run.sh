@@ -4,8 +4,9 @@
 # What it does, in order:
 #   1. Builds libloxc.a, loxc_train, loxc_cli, loxc_bench, loxc_bench2.
 #   2. Generates fresh training/test corpora into trainings/extra and
-#      benchmarks/corpora (idempotent: skipped if files already exist).
-#   3. Trains domain-specific modules (sample text, json, logs, csrc).
+#      benchmarks/corpora (idempotent where possible).
+#   3. Retrains domain-specific modules (sample text, json, logs, csrc) so the
+#      benchmark always uses tables that match the current trainer.
 #   4. Runs loxc_bench2 for each module against its matching suite.
 #   5. Runs baseline-compressor benchmarks on the union suite.
 #   6. Aggregates everything into BENCHMARKS_FULL.md plus merged CSVs.
@@ -49,10 +50,6 @@ echo "== STEP 3: train modules =="
 train() {
   local input="$1" out="$2" name="$3" mid="$4"
   local table_bytes
-  if [[ -s "${out}.loxctab" ]] && [[ "${out}.loxctab" -nt "$input" ]]; then
-    echo "  - up to date: ${out}.loxctab"
-    return
-  fi
   ./tools/loxc_train --input "$input" --output "$out" --module-name "$name" --module-id "$mid" >/dev/null
   table_bytes=$(wc -c < "${out}.loxctab" | tr -d '[:space:]')
   echo "  - trained: ${out}.loxctab (${table_bytes} B)"

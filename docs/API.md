@@ -87,6 +87,23 @@ int loxc_check_file(const char *path);
 
 Validates that a file looks like a readable `.loxc` container.
 
+### `loxc_check_file_ex`
+
+```c
+int loxc_check_file_ex(const char *path, loxc_check_file_result_t *out_result);
+```
+
+Validates a `.loxc` file and, when `out_result` is not `NULL`, returns parsed
+metadata about the container:
+
+- `rc`: the validation result
+- `os_errno`: host errno from open failures
+- `file_size`: observed file size when available
+- `header_size`: parsed header size
+- `embedded`: non-zero for embedded-table containers
+- `module_id`, `version`, `flags`, `strategy_id`
+- `payload_len`, `level_count`, `uncompressed_len`, `table_fingerprint`
+
 ### Simple API example
 
 ```c

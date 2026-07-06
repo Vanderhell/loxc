@@ -31,8 +31,18 @@ Create `myapp.c`:
 
 int main(void) {
     loxc_ctx_t *ctx = loxc_open("modules/loxc_demo.loxctab");
+    if (ctx == NULL) {
+        fprintf(stderr, "failed to load demo table\n");
+        return 1;
+    }
     const char *text = "Compress me!";
     loxc_buffer_t out = loxc_compress_buffer(ctx, text, strlen(text), 0);
+
+    if (out.error != LOXC_OK) {
+        fprintf(stderr, "compression failed: %s\n", loxc_strerror(out.error));
+        loxc_close(ctx);
+        return 1;
+    }
 
     printf("Original: %zu, Compressed: %zu\n", strlen(text), out.size);
 
