@@ -117,10 +117,8 @@ static void print_flags(uint8_t flags) {
     printf(" (none)");
   } else {
     printf(" (");
-    int first = 1;
     if ((flags & LOXC_FLAG_EMBEDDED_TABLE) != 0) {
-      printf("%sEMBEDDED_TABLE", first ? "" : "|");
-      first = 0;
+      printf("EMBEDDED_TABLE");
     }
     printf(")");
   }

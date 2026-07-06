@@ -148,7 +148,6 @@ static int read_entire_file_limited(const char *path, size_t max_size,
   FILE *f = NULL;
   long file_size = 0;
   uint8_t *buf = NULL;
-  size_t nread = 0u;
 
   if (path == NULL || out_data == NULL || out_size == NULL ||
       alloc_fn == NULL || free_fn == NULL) {
@@ -184,8 +183,7 @@ static int read_entire_file_limited(const char *path, size_t max_size,
       fclose(f);
       return LOXC_ERR_ALLOC;
     }
-    nread = fread(buf, 1, (size_t)file_size, f);
-    if (nread != (size_t)file_size) {
+    if (fread(buf, 1, (size_t)file_size, f) != (size_t)file_size) {
       free_fn(user_data, buf);
       fclose(f);
       return LOXC_ERR_TRUNCATED;

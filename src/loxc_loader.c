@@ -790,6 +790,9 @@ int loxc_module_load_from_memory_ex(const uint8_t *buf, size_t buf_size,
   if (name == NULL) {
     return loxc__tab_fail(out_error, LOXC_ERR_NULL, 0u, "null module name");
   }
+  if (buf_size == 0u) {
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 0u, "empty loxctab buffer");
+  }
 
   if (loxc__parse_table(buf, buf_size, &parsed, out_error) != LOXC_OK) {
     return (out_error != NULL) ? out_error->code : LOXC_ERR_INVALID_FORMAT;
@@ -951,6 +954,10 @@ int loxc_module_load_from_file_ex(const char *path,
   }
 
   file_size = (size_t)file_size_long;
+  if (file_size == 0u) {
+    fclose(f);
+    return loxc__tab_fail(out_error, LOXC_ERR_INVALID_FORMAT, 0u, "empty loxctab file");
+  }
   if (file_size > 0u) {
     buf = (uint8_t *)malloc(file_size);
     if (buf == NULL) {

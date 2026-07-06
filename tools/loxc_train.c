@@ -69,7 +69,7 @@ static const char *generated_timestamp(void) {
   }
   t = (time_t)epoch;
   {
-    struct tm *tm_ptr = gmtime(&t);
+    const struct tm *tm_ptr = gmtime(&t);
     if (tm_ptr != NULL) {
       tm_utc = *tm_ptr;
       if (strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S UTC", &tm_utc) > 0u) {
@@ -629,7 +629,7 @@ static int generate_c_file_hier(const char *output_prefix, const char *input, si
                                 const char *func_prefix,
                                 const loxc_hier_t *hier);
 
-static int parse_args(int argc, char *argv[], const char *inputs[],
+static int parse_args(int argc, char *const argv[], const char *inputs[],
                       size_t *input_count,
                       const char **output, const char **module_name,
                       uint8_t *module_id) {
@@ -1673,8 +1673,8 @@ static int analyze_freqs(const uint8_t *data, size_t data_len,
 
   /* Greedy global filter over gain>0 candidates */
   uint8_t *accepted_mask = NULL;
-  size_t accepted_count = 0;
   if (dict.entries != NULL && dict.count > 0) {
+    size_t accepted_count = 0;
     accepted_mask = (uint8_t *)calloc(dict.count, 1);
     if (accepted_mask == NULL) {
       fprintf(stderr, "Error: calloc accepted_mask\n");
@@ -1879,8 +1879,8 @@ static int analyze_freqs(const uint8_t *data, size_t data_len,
   printf("-----+--------------+------------+-----------\n");
   for (size_t i = 0; i < symbol_count && i < 10; i++) {
     uint8_t ch = symbols[i].char_val;
-    char ch_display[16];
     if (!symbols[i].is_dict) {
+      char ch_display[16];
       if (ch >= 32 && ch < 127) {
         snprintf(ch_display, sizeof(ch_display), "'%c'", (char)ch);
       } else {
@@ -2273,9 +2273,9 @@ int main(int argc, char *argv[]) {
   printf("Strategy: %s\n", strat_str);
   printf("Symbols: %zu\n", symbol_count);
   printf("Levels: %u\n",
-         result.strategy != LOXC_STRATEGY_FLAT_FIXED_WIDTH
-             ? hier.level_count
-             : 0);
+         (unsigned)(result.strategy != LOXC_STRATEGY_FLAT_FIXED_WIDTH
+                        ? hier.level_count
+                        : 0));
 
   /* Read and display the generated header file */
   printf("\n=== Generated Header File Content ===\n");
