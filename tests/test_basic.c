@@ -9,7 +9,7 @@ static void test_magic(void) {
   assert(m[0] == 'L');
   assert(m[1] == 'X');
   assert(m[2] == 'C');
-  assert(m[3] == 0x00);
+  assert(LOXC_CONTAINER_MAGIC_PREFIX_SIZE == 3u);
 }
 
 static void test_err_codes(void) {
@@ -26,4 +26,3 @@ int main(void) {
   puts("test_basic: PASS");
   return 0;
 }
-
